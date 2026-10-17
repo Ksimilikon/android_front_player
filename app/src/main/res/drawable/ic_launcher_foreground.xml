@@ -1,0 +1,13 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- a note inside the safe zone (66dp circle). -->
+    <path
+        android:fillColor="@color/accent"
+        android:pathData="M62,32 L62,64.5 C60.4,63.6 58.5,63 56.5,63 C51.3,63 47,66.6 47,71 C47,75.4 51.3,79 56.5,79 C61.7,79 66,75.4 66,71 L66,44 L76,44 L76,32 Z" />
+    <path
+        android:fillColor="#663DDC84"
+        android:pathData="M36,48 L52,48 L52,52 L36,52 Z M36,56 L46,56 L46,60 L36,60 Z M36,40 L56,40 L56,44 L36,44 Z" />
+</vector>

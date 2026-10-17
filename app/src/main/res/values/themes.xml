@@ -1,0 +1,10 @@
+<resources>
+    <!-- the window behind Compose: dark, so there is no white flash at start. -->
+    <style name="Theme.DreamPlayer" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <color name="background">#FF0D100E</color>
+    <color name="accent">#FF3DDC84</color>
+</resources>
