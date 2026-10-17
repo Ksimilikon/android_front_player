@@ -29,6 +29,7 @@ sealed class TabSpec(val id: String, val title: String, val closable: Boolean) {
     class EditMeta(track: Track, val state: MetaEditorState) : TabSpec("meta:${track.id}", "Мета: ${track.title.take(12)}", closable = true)
     class Import(val state: ImportState) : TabSpec("import", "Импорт", closable = true)
     class Export(val state: ExportState) : TabSpec("export", "Экспорт", closable = true)
+    data object Logs : TabSpec("logs", "Логи", closable = true)
 }
 
 /**
@@ -140,6 +141,8 @@ class TabHost(private val core: DreamCore) : Navigator {
     override fun openExport() {
         if (tabs.none { it is TabSpec.Export }) open(TabSpec.Export(ExportState())) else currentId = "export"
     }
+
+    override fun openLogs() = open(TabSpec.Logs)
 
     override fun closeCurrent() = close(currentIndex)
 }

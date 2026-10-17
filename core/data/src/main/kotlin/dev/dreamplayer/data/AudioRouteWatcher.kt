@@ -10,6 +10,8 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import dev.dreamplayer.model.LogSource
+import dev.dreamplayer.model.StatusKind
 
 /**
  * watches the audio outputs for the whole process (not only while the
@@ -21,6 +23,7 @@ import androidx.core.content.ContextCompat
 internal class AudioRouteWatcher(
     private val context: Context,
     private val player: PlayerController,
+    private val log: CoreLog,
 ) {
     private val audio = context.getSystemService(AudioManager::class.java)
 
@@ -33,17 +36,25 @@ internal class AudioRouteWatcher(
                 initialReport = false
                 return
             }
-            added.firstOrNull(::isExternalOutput)?.let { player.onOutputAdded(it.productName.toString()) }
+            added.firstOrNull(::isExternalOutput)?.let {
+                log.add(LogSource.System, StatusKind.Info, "подключено устройство вывода: ${describe(it)}")
+                player.onOutputAdded(label(it))
+            }
         }
 
         override fun onAudioDevicesRemoved(removed: Array<AudioDeviceInfo>) {
-            removed.firstOrNull(::isExternalOutput)?.let { player.onOutputRemoved(label(it)) }
+            removed.firstOrNull(::isExternalOutput)?.let {
+                log.add(LogSource.System, StatusKind.Info, "отключено устройство вывода: ${describe(it)}")
+                player.onOutputRemoved(label(it))
+            }
         }
     }
 
     private val noisy = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) player.onOutputRemoved("наушники")
+            if (intent.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
+            log.add(LogSource.System, StatusKind.Info, "система: AUDIO_BECOMING_NOISY")
+            player.onOutputRemoved("наушники")
         }
     }
 
@@ -57,6 +68,8 @@ internal class AudioRouteWatcher(
     }
 
     private fun isExternalOutput(d: AudioDeviceInfo): Boolean = d.isSink && d.type in EXTERNAL
+
+    private fun describe(d: AudioDeviceInfo): String = "${label(d)} (тип ${d.type}, \"${d.productName}\", id ${d.id})"
 
     private fun label(d: AudioDeviceInfo): String = when (d.type) {
         AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, BLE_HEADSET, BLE_SPEAKER -> d.productName?.toString()?.ifBlank { null } ?: "Bluetooth"

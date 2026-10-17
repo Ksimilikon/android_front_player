@@ -12,8 +12,8 @@ import android.webkit.MimeTypeMap
 import dev.dreamplayer.common.humanSize
 import dev.dreamplayer.core.CdcStatus
 import dev.dreamplayer.core.ImportFileKind
-import dev.dreamplayer.core.Native
 import dev.dreamplayer.core.PACKET_VERSION
+import dev.dreamplayer.model.LogSource
 import dev.dreamplayer.model.StatusKind
 import dev.dreamplayer.model.StatusMessage
 import java.io.File
@@ -37,11 +37,19 @@ class ExchangeRepository internal constructor(
     private val rt: CoreRuntime,
     private val paths: StoragePaths,
     private val library: LibraryRepository,
+    private val coreLog: CoreLog,
 ) {
     private val resolver get() = context.contentResolver
 
+    /** the tab's log line also goes to the core log. */
+    private fun ((StatusMessage) -> Unit).teed(): (StatusMessage) -> Unit = { m ->
+        coreLog.add(LogSource.Status, m.kind, m.text)
+        this(m)
+    }
+
     /** packs [what] into [target] (a CreateDocument URI); the log lines go to [log]. */
-    suspend fun export(target: Uri, what: ExportWhat, flags: ExportFlags, log: (StatusMessage) -> Unit): Boolean {
+    suspend fun export(target: Uri, what: ExportWhat, flags: ExportFlags, tabLog: (StatusMessage) -> Unit): Boolean {
+        val log = tabLog.teed()
         log(info("упаковка: ${describe(what)} (аудио: ${yes(flags.audio)}, имена: ${yes(flags.names)}, обложки: ${yes(flags.covers)})…"))
         var size = 0L
         val code = runCatching {
@@ -73,7 +81,8 @@ class ExchangeRepository internal constructor(
      * `Music/[subdir]` through MediaStore, covers into the app's directory, then
      * the core saves the final paths. Any failure rolls the written files back.
      */
-    suspend fun import(packet: Uri, force: Boolean, subdir: String, log: (StatusMessage) -> Unit): Boolean {
+    suspend fun import(packet: Uri, force: Boolean, subdir: String, tabLog: (StatusMessage) -> Unit): Boolean {
+        val log = tabLog.teed()
         // step 1: the core reads the packet and checks the dates.
         val prepared = runCatching {
             resolver.openFileDescriptor(packet, "r")!!.use { pfd ->

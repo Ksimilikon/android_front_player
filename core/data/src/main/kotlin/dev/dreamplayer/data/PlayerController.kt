@@ -2,11 +2,12 @@ package dev.dreamplayer.data
 
 import dev.dreamplayer.common.moved
 import dev.dreamplayer.core.EngineStatus
-import dev.dreamplayer.core.Native
 import dev.dreamplayer.core.TrackEndListener
 import dev.dreamplayer.model.Library
+import dev.dreamplayer.model.LogSource
 import dev.dreamplayer.model.PlaybackState
 import dev.dreamplayer.model.Queue
+import dev.dreamplayer.model.StatusKind
 import dev.dreamplayer.model.Track
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -19,6 +20,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
+ * the core's name of the system default output device: its stream follows the
+ * system routing (headphones plugged in / out).
+ */
+const val DEFAULT_OUTPUT = "Default Device"
+
+/**
  * playback orchestration over the core engine (as `App` in the TUI): the
  * queue, next / previous, autoplay at the end of a track, volumes. Every
  * command runs on the core thread, so the state is changed by one thread only.
@@ -28,14 +35,22 @@ class PlayerController internal constructor(
     private val library: LibraryRepository,
     private val scope: CoroutineScope,
     private val status: StatusBus,
+    private val log: CoreLog,
 ) {
+    private val native = rt.native
+
     private val state = MutableStateFlow(PlaybackState())
     val playback: StateFlow<PlaybackState> = state.asStateFlow()
 
     init {
         // the core reports the natural end of a track on its audio thread.
-        Native.setTrackEndListener(TrackEndListener { launch { stepTrack(+1) } })
-        launch { state.update { it.copy(masterVolume = Native.engineGetVolumeMaster().or(it.masterVolume)) } }
+        native.setTrackEndListener(
+            TrackEndListener {
+                log.add(LogSource.Event, StatusKind.Info, "ядро: трек доиграл")
+                launch { stepTrack(+1) }
+            },
+        )
+        launch { state.update { it.copy(masterVolume = native.engineGetVolumeMaster().or(it.masterVolume)) } }
         // the library changed (edits, import) — rebuild the queue tracks.
         scope.launch { library.library.drop(1).collect { lib -> this@PlayerController.launch { refreshQueue(lib) } } }
         scope.launch(rt.dispatcher) { pollLoop() }
@@ -96,24 +111,33 @@ class PlayerController internal constructor(
     // ───────────────────────── transport ─────────────────────────
 
     fun playPause() = launch {
-        if (isPaused() && needsReconnect) resumeOnFreshStream() else Native.enginePlayPause()
+        when {
+            isPaused() && needsReconnect -> resumeOnFreshStream()
+            // nothing loaded (the track failed to load): try it again.
+            isEngineEmpty() -> playCurrent()
+            else -> native.enginePlayPause()
+        }
         syncTransport()
     }
 
     fun play() = launch {
-        if (needsReconnect) resumeOnFreshStream() else Native.enginePlay()
+        when {
+            needsReconnect -> resumeOnFreshStream()
+            isEngineEmpty() -> playCurrent()
+            else -> native.enginePlay()
+        }
         syncTransport()
     }
-    fun pause() = launch { Native.enginePause(); syncTransport() }
+    fun pause() = launch { native.enginePause(); syncTransport() }
 
     /** stops playback and forgets the queue. */
     fun stop() = launch {
-        Native.engineStop()
+        native.engineStop()
         state.update { PlaybackState(masterVolume = it.masterVolume) }
     }
 
     fun seek(seconds: Long) = launch {
-        val code = Native.engineSetSeek(seconds)
+        val code = native.engineSetSeek(seconds)
         if (code == EngineStatus.OK) state.update { it.copy(positionS = seconds) } else status.warn(describeEngine(code))
     }
 
@@ -121,7 +145,7 @@ class PlayerController internal constructor(
 
     fun setMasterVolume(v: Float) = launch {
         val vol = v.coerceIn(0f, 1f)
-        when (val code = Native.engineSetVolumeMaster(vol)) {
+        when (val code = native.engineSetVolumeMaster(vol)) {
             EngineStatus.OK -> {}
             // applied, only the config on disk wasn't updated.
             EngineStatus.CONFIG_WRITE_FAILED -> status.warn("громкость не сохранится после перезапуска")
@@ -140,7 +164,7 @@ class PlayerController internal constructor(
     fun setTrackVolume(track: Track, v: Float, persist: Boolean) = launch {
         val vol = v.coerceIn(Track.VOLUME_MIN, Track.VOLUME_MAX)
         if (state.value.isCurrent(track)) {
-            if (Native.engineSetVolumeTrack(vol) == EngineStatus.OK) state.update { it.copy(trackVolume = vol) }
+            if (native.engineSetVolumeTrack(vol) == EngineStatus.OK) state.update { it.copy(trackVolume = vol) }
         }
         if (persist) track.id?.let { library.setTrackVolume(it, vol) }
     }
@@ -157,7 +181,7 @@ class PlayerController internal constructor(
     fun switchDevice(name: String) = launch {
         val pos = position()
         val paused = isPaused()
-        val code = Native.engineSetOutputDevice(name)
+        val code = native.engineSetOutputDevice(name)
         if (code != EngineStatus.OK) {
             status.error("не удалось переключиться на: $name (${describeEngine(code)})")
             return@launch
@@ -165,11 +189,11 @@ class PlayerController internal constructor(
         needsReconnect = false
         if (state.value.queue != null) {
             playCurrent()
-            if (pos > 0) Native.engineSetSeek(pos)
-            if (paused) Native.enginePause()
+            if (pos > 0) native.engineSetSeek(pos)
+            if (paused) native.enginePause()
             syncTransport()
         }
-        status.info("устройство вывода: $name")
+        status.info("устройство вывода: ${if (name == DEFAULT_OUTPUT) "системное" else name}")
     }
 
     // ───────────────────── output route changes ─────────────────────
@@ -177,9 +201,9 @@ class PlayerController internal constructor(
     // Android disconnects the core's AAudio stream when the output route
     // changes (headphones / Bluetooth plugged in or out). The core doesn't
     // notice — rodio only logs the stream error — so every following track
-    // goes into a dead mixer and nothing plays. The only way to get a new
-    // stream through the current core API is `engineSetOutputDevice`, after
-    // which the current track is restored (as on a manual device switch).
+    // goes into a dead mixer and nothing plays. The stream is reopened on the
+    // system default device ([DEFAULT_OUTPUT], which follows the routing) and
+    // the current track restored, as on a manual device switch.
 
     /** the engine's stream may be dead: reopen it before the next play. */
     private var needsReconnect = false
@@ -191,7 +215,7 @@ class PlayerController internal constructor(
     fun onOutputRemoved(name: String) = launch {
         needsReconnect = true
         if (state.value.queue != null && !isPaused()) {
-            Native.enginePause()
+            native.enginePause()
             syncTransport()
             status.info("$name: отключено — пауза")
         }
@@ -202,50 +226,44 @@ class PlayerController internal constructor(
         needsReconnect = true
         if (state.value.queue == null || isPaused()) return@launch
         delay(ROUTE_SETTLE_MS) // let the system finish switching the route
-        if (!reconnect(preferred = name, resume = true)) {
-            // the core can't reopen a stream: keep going and let the stall check judge.
-            needsReconnect = false
+        if (reconnect(resume = true)) {
+            status.info("звук переведён: $name")
+        } else {
+            native.enginePause()
+            syncTransport()
+            status.error("не удалось перевести звук на $name. Выберите устройство в настройках")
         }
     }
 
     /** play after a route change: on a fresh stream if the core can open one. */
     private fun resumeOnFreshStream() {
-        if (!reconnect(preferred = null, resume = true)) {
-            needsReconnect = false
-            Native.enginePlay()
+        if (!reconnect(resume = true)) {
+            status.error("не удалось открыть устройство вывода. Выберите его в настройках")
         }
     }
 
     /**
-     * opens a new output stream and restores the current track, position and
-     * pause. Tries the system default device first (routes wherever Android
-     * routes), then [preferred] if its name is unambiguous — cpal names
-     * built-in devices after the phone model, so several share one name and the
-     * core switches by name. false — no stream could be opened.
+     * opens a new stream on the system default device and restores the current
+     * track, position and pause. false — the core couldn't open it.
      */
-    private fun reconnect(preferred: String?, resume: Boolean): Boolean {
+    private fun reconnect(resume: Boolean): Boolean {
         val pos = position()
-        val names = Native.engineGetOutputDevices().or(emptyList())
-        val candidates = buildList {
-            add(DEFAULT_DEVICE)
-            if (preferred != null && names.count { it == preferred } == 1) add(preferred)
-        }
-        val opened = candidates.firstOrNull { Native.engineSetOutputDevice(it) == EngineStatus.OK } ?: return false
+        if (native.engineSetOutputDevice(DEFAULT_OUTPUT) != EngineStatus.OK) return false
         needsReconnect = false
+        stalledPolls = 0
         if (state.value.queue != null) {
             playCurrent()
-            if (pos > 0) Native.engineSetSeek(pos)
-            if (!resume) Native.enginePause()
+            if (pos > 0) native.engineSetSeek(pos)
+            if (!resume) native.enginePause()
             syncTransport()
         }
-        if (opened != DEFAULT_DEVICE) status.info("устройство вывода: $opened")
         return true
     }
 
     /**
      * the safety net: "playing" but the position stands still — the stream is
-     * dead. One recovery attempt; if it can't help, pause and say so instead
-     * of pretending to play.
+     * dead (a route change the watcher missed). One recovery attempt; if it
+     * can't help, pause and say so instead of pretending to play.
      */
     private fun checkStall() {
         val s = state.value
@@ -254,11 +272,12 @@ class PlayerController internal constructor(
         lastPos = s.positionS
         if (stalledPolls < STALL_POLLS) return
         stalledPolls = 0
+        log.add(LogSource.System, StatusKind.Warn, "позиция стоит ${STALL_POLLS * POLL_MS / 1000} с — поток вывода мёртв")
         val now = System.currentTimeMillis()
-        val recovered = now - lastRecoveryAt > RECOVERY_INTERVAL_MS && reconnect(preferred = null, resume = true)
+        val recovered = now - lastRecoveryAt > RECOVERY_INTERVAL_MS && reconnect(resume = true)
         lastRecoveryAt = now
         if (!recovered) {
-            Native.enginePause()
+            native.enginePause()
             needsReconnect = true
             syncTransport()
             status.error("звук пропал: сменилось устройство вывода. Выберите устройство в настройках или перезапустите приложение")
@@ -268,7 +287,7 @@ class PlayerController internal constructor(
     // ───────────────────────── internals ─────────────────────────
 
     /** runs [block] on the core thread (commands are serialized). */
-    private fun launch(block: suspend Native.() -> Unit) = scope.launch(rt.dispatcher) { Native.block() }
+    private fun launch(block: suspend CoreCalls.() -> Unit) = scope.launch(rt.dispatcher) { native.block() }
 
     private fun stepTrack(delta: Int) {
         val q = state.value.queue ?: return
@@ -281,12 +300,17 @@ class PlayerController internal constructor(
     /** plays the track under `queue.current` (by id or path). */
     private fun playCurrent() {
         val track = state.value.currentTrack ?: return
+        // a new track into a dead stream would be silent: reopen it first.
+        if (needsReconnect && native.engineSetOutputDevice(DEFAULT_OUTPUT) == EngineStatus.OK) needsReconnect = false
         val code = when {
-            track.id != null -> Native.engineAddTrackId(track.id!!)
-            track.path != null -> Native.engineAddTrackPath(track.path!!)
+            track.id != null -> native.engineAddTrackId(track.id!!)
+            track.path != null -> native.engineAddTrackPath(track.path!!)
             else -> null // neither id nor path: nothing to play
         }
         if (code != EngineStatus.OK) {
+            // the core leaves the engine as it was: the previous track would
+            // keep playing under the new one's title.
+            native.engineStop()
             val why = code?.let { " (${describeEngine(it)})" } ?: ""
             status.error("не удалось воспроизвести: ${track.title}$why")
         }
@@ -296,25 +320,34 @@ class PlayerController internal constructor(
 
     /** a failed engine read keeps the previous value. */
     private fun syncTransport() {
+        // a stopped engine still reports the last track's position.
+        val empty = native.engineIsEmpty().or(true)
         state.update {
             it.copy(
-                isPaused = isPaused() || Native.engineIsEmpty().or(true),
-                positionS = Native.engineGetSeek().or(it.positionS),
-                durationS = Native.engineGetDuration().or(it.durationS),
-                trackVolume = Native.engineGetVolumeTrack().or(it.trackVolume),
+                isPaused = isPaused() || empty,
+                positionS = if (empty) 0 else native.engineGetSeek().or(it.positionS),
+                durationS = native.engineGetDuration().or(it.durationS),
+                trackVolume = native.engineGetVolumeTrack().or(it.trackVolume),
             )
         }
     }
 
     /** a failed read counts as paused: nothing is known to be playing. */
-    private fun isPaused(): Boolean = Native.engineIsPause().or(true)
+    private fun isPaused(): Boolean = native.engineIsPause().or(true)
 
-    private fun position(): Long = Native.engineGetSeek().or(0L)
+    /** a failed read counts as loaded: don't reload a track over a playing one. */
+    private fun isEngineEmpty(): Boolean = state.value.currentTrack != null && native.engineIsEmpty().or(false)
+
+    private fun position(): Long = native.engineGetSeek().or(0L)
 
     /** the position for the progress bar; cheap, but only while there is a queue. */
     private suspend fun pollLoop() {
         while (scope.isActive) {
             delay(POLL_MS)
+            native.newPanic()?.let { why ->
+                log.add(LogSource.Event, StatusKind.Error, "паника ядра: $why")
+                status.error("сбой в потоке ядра: ${why.take(200)}")
+            }
             if (state.value.queue != null) {
                 syncTransport()
                 checkStall()
@@ -345,9 +378,6 @@ class PlayerController internal constructor(
 
     private companion object {
         const val POLL_MS = 500L
-
-        /** cpal's name of the system default output device. */
-        const val DEFAULT_DEVICE = "Default Device"
 
         /** ~3 s of a frozen position while playing = a dead stream. */
         const val STALL_POLLS = 6

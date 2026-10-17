@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -33,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dreamplayer.common.percent
+import dev.dreamplayer.data.DEFAULT_OUTPUT
 import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.ui.ConfirmDialog
 import dev.dreamplayer.ui.form.SectionTitle
@@ -62,13 +64,18 @@ fun SettingsSheet(core: DreamCore, nav: Navigator, onDone: () -> Unit) {
 
         SectionTitle("Библиотека")
         Action("Новый плейлист", null, Icons.AutoMirrored.Filled.PlaylistAdd) { nav.openNewPlaylist(); onDone() }
-        Action("Пересканировать музыку", core.paths.music.path, Icons.Filled.Refresh) { core.launch { core.library.scan(null) } }
+        Action("Пересканировать музыку", "перечитать теги всех файлов", Icons.Filled.Refresh) {
+            core.launch { core.library.scan(null, full = true) }
+        }
         Action("Сканировать другую папку…", null, Icons.Filled.CreateNewFolder) { pickFolder.launch(null) }
         Action("Удалить невалидные треки", "файлы которых больше нет", Icons.Filled.CleaningServices, danger = true) { cleaning = true }
 
         SectionTitle("Воспроизведение")
         MasterVolume(playback.masterVolume) { core.player.setMasterVolume(it) }
         OutputDevices(core)
+
+        SectionTitle("Диагностика")
+        Action("Логи", "вызовы ядра, события и сообщения", Icons.Filled.Terminal) { nav.openLogs(); onDone() }
     }
 
     if (cleaning) {
@@ -114,6 +121,9 @@ private fun MasterVolume(value: Float, onChange: (Float) -> Unit) {
     }
 }
 
+/** the system default device follows Android's routing (headphones etc.). */
+private fun deviceTitle(name: String) = if (name == DEFAULT_OUTPUT) "Системное (как в Android)" else name
+
 /** the output devices of the engine, the current one highlighted; tap switches. */
 @Composable
 private fun OutputDevices(core: DreamCore) {
@@ -128,14 +138,14 @@ private fun OutputDevices(core: DreamCore) {
     }
     ListRow(
         title = "Устройство вывода",
-        subtitle = current ?: "—",
+        subtitle = current?.let(::deviceTitle) ?: "—",
         leading = { Icon(Icons.Filled.Speaker, contentDescription = null, tint = Dream.colors.playing) },
         trailing = { Icon(Icons.Filled.Refresh, contentDescription = "Обновить", tint = Dream.colors.muted) },
         onClick = { refresh++ },
     )
     for (d in devices) {
         ListRow(
-            title = d,
+            title = deviceTitle(d),
             highlighted = d == current,
             modifier = Modifier.padding(start = 24.dp),
             onClick = {

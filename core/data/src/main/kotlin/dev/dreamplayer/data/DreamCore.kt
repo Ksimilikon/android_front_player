@@ -2,7 +2,8 @@ package dev.dreamplayer.data
 
 import android.content.Context
 import dev.dreamplayer.core.InitStatus
-import dev.dreamplayer.core.Native
+import dev.dreamplayer.model.LogSource
+import dev.dreamplayer.model.StatusKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
@@ -15,11 +16,13 @@ import java.io.File
  */
 class DreamCore private constructor(context: Context) {
     private val scope = CoroutineScope(SupervisorJob())
-    private val rt = CoreRuntime()
+    /** every call into the core, its events and the messages to the user. */
+    val log = CoreLog()
+    private val rt = CoreRuntime(log)
 
     val paths = StoragePaths(context)
-    val status = StatusBus()
-    val library = LibraryRepository(rt, status)
+    val status = StatusBus(log)
+    val library = LibraryRepository(rt, status, paths.music)
     val player: PlayerController
     val exchange: ExchangeRepository
     val covers = CoverStore(context, paths)
@@ -40,14 +43,16 @@ class DreamCore private constructor(context: Context) {
 
     init {
         // the core needs a db; it restores the master volume from its own config.
-        val code = Native.init(context, paths.cache.path, paths.config.path, paths.data.path, paths.music.path, true)
+        val code = rt.native.init(context, paths.cache.path, paths.config.path, paths.data.path, paths.music.path, true)
         initError = when (code) {
             InitStatus.OK, InitStatus.ALREADY_INITIALIZED -> null
             else -> "ядро не запустилось: ${describeInit(code)}"
         }
-        player = PlayerController(rt, library, scope, status)
-        exchange = ExchangeRepository(context, rt, paths, library)
-        AudioRouteWatcher(context, player).start()
+        previousCrash?.let { log.add(LogSource.Event, StatusKind.Warn, it) }
+        initError?.let { log.add(LogSource.Event, StatusKind.Error, it) }
+        player = PlayerController(rt, library, scope, status, log)
+        exchange = ExchangeRepository(context, rt, paths, library, log)
+        AudioRouteWatcher(context, player, log).start()
         scope.launch { library.reload() }
     }
 
@@ -57,7 +62,10 @@ class DreamCore private constructor(context: Context) {
      */
     fun launch(block: suspend CoroutineScope.() -> Unit) = scope.launch(block = block)
 
-    /** indexes the music directory (call once the media permission is granted). */
+    /**
+     * syncs the library with the music directory (call once the media
+     * permission is granted): only new / gone files reach the core.
+     */
     fun scanMusicOnStart() {
         scope.launch { library.scan(null, announce = false) }
     }
@@ -69,7 +77,7 @@ class DreamCore private constructor(context: Context) {
         /**
          * moves the core's panic log of the previous run aside (so it's
          * reported once; the last copy stays in `core_panic.prev.log`) and
-         * returns its last uncaught panic. Called before `Native.init`: the
+         * returns its last uncaught panic. Called before the core init: the
          * core appends to the log from then on.
          */
         private fun takePreviousCrash(dataDir: File): String? {

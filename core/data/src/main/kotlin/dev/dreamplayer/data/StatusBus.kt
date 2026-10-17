@@ -1,16 +1,21 @@
 package dev.dreamplayer.data
 
+import dev.dreamplayer.model.LogSource
 import dev.dreamplayer.model.StatusKind
 import dev.dreamplayer.model.StatusMessage
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 
-/** one-off messages for the status banner (the TUI status line). */
-class StatusBus {
+/**
+ * one-off messages for the status banners (the TUI status line); every
+ * message also goes to the [CoreLog].
+ */
+class StatusBus internal constructor(private val log: CoreLog) {
     private val flow = MutableSharedFlow<StatusMessage>(extraBufferCapacity = 16)
     val messages: SharedFlow<StatusMessage> = flow
 
     fun post(text: String, kind: StatusKind = StatusKind.Info) {
+        log.add(LogSource.Status, kind, text)
         flow.tryEmit(StatusMessage(text, kind))
     }
 

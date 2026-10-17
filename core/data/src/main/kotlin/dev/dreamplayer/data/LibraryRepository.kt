@@ -9,12 +9,16 @@ import dev.dreamplayer.model.Track
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
+import java.io.File
 
 /** the library index: the track pool and the playlists of the db. */
 class LibraryRepository internal constructor(
     private val rt: CoreRuntime,
     private val status: StatusBus,
+    private val musicDir: File,
 ) {
     private val state = MutableStateFlow(Library.EMPTY)
     val library: StateFlow<Library> = state.asStateFlow()
@@ -48,19 +52,77 @@ class LibraryRepository internal constructor(
     }
 
     /**
-     * indexes [dir] (null — the music directory) and re-reads the library;
-     * [announce] — report success too (the silent start-up scan doesn't).
+     * syncs the library with the song files under [dir] (null — the music
+     * directory). The comparison is done here, the core only writes the
+     * difference: the folder is walked, the library pool is read and compared
+     * by path; new files go to the core in batches ([BATCH] per transaction,
+     * so a tapped song gets through between them), tracks whose file is gone
+     * are marked invalid, those whose file came back are unmarked. [full] —
+     * re-read the tags of every file, not only the new ones (a manual
+     * rescan: tags edited outside the app aren't seen by a path comparison).
+     * [announce] — report the result even when nothing changed.
      */
-    suspend fun scan(dir: String? = null, announce: Boolean = true): Boolean {
-        val code = rt.call { idxIndexDir(dir) }
-        val ok = code == IdxStatus.OK
-        reload()
-        when {
-            !ok -> status.error("не удалось проиндексировать ${dir ?: "папку музыки"}: ${describeIdx(code)}")
-            announce -> status.ok("библиотека проиндексирована")
+    suspend fun scan(dir: String? = null, announce: Boolean = true, full: Boolean = false): Boolean {
+        val root = dir?.let(::File) ?: musicDir
+        val where = dir ?: "папка музыки"
+        if (!withContext(Dispatchers.IO) { root.isDirectory && root.canRead() }) {
+            status.error("$where недоступна")
+            return false
         }
-        return ok
+        val files = withContext(Dispatchers.IO) { listSongs(root) }
+        val pool = rt.call { idxGetTracks() }
+        if (!pool.isOk) {
+            status.error("не удалось прочитать библиотеку: ${describeIdx(pool.status)}")
+            return false
+        }
+        val prefix = root.path.trimEnd('/') + "/"
+        val known = pool.or(emptyList()).filter { it.path?.startsWith(prefix) == true }
+        val knownPaths = known.mapNotNull { it.path }.toSet()
+        val toAdd = (if (full) files else files - knownPaths).sorted()
+        // no file visible at all while the library has some: the folder is
+        // more likely unreadable (media permission revoked) than emptied —
+        // don't mark the whole library invalid.
+        val gone = if (files.isEmpty()) emptyList() else known.filter { !it.invalid && it.path !in files }.mapNotNull { it.id }
+        val back = known.filter { it.invalid && it.path in files }.mapNotNull { it.id }
+
+        var added = 0L
+        var failed: Int? = null
+        for (batch in toAdd.chunked(BATCH)) {
+            val res = rt.call { idxAddTracks(batch.toTypedArray()) }
+            if (!res.isOk) {
+                failed = res.status
+                break
+            }
+            added += res.or(0L)
+        }
+        for ((ids, invalid) in listOf(gone to true, back to false)) {
+            if (failed != null || ids.isEmpty()) continue
+            val code = rt.call { idxSetTracksInvalid(ids.toLongArray(), invalid) }
+            if (code != IdxStatus.OK) failed = code
+        }
+        val changed = added > 0 || gone.isNotEmpty() || back.isNotEmpty()
+        if (changed) reload()
+
+        val summary = buildList {
+            if (added > 0) add(if (full) "прочитано песен: $added" else "новых песен: $added")
+            if (gone.isNotEmpty()) add("файлов нет: ${gone.size}")
+            if (back.isNotEmpty()) add("вернулось: ${back.size}")
+        }.joinToString(", ")
+        when {
+            failed != null -> status.error("не удалось проиндексировать $where: ${describeIdx(failed)}")
+            changed -> status.ok("библиотека: $summary")
+            announce -> status.ok("библиотека актуальна")
+        }
+        return failed == null
     }
+
+    /** song files under [root] (hidden directories skipped), by absolute path. */
+    private fun listSongs(root: File): Set<String> =
+        root.walkTopDown()
+            .onEnter { it == root || !it.name.startsWith('.') }
+            .filter { it.isFile && it.extension.lowercase() in SONG_EXTENSIONS }
+            .map { it.path }
+            .toSet()
 
     /**
      * creates / updates playlist [name] from [ids] (in this order). When the
@@ -135,4 +197,12 @@ class LibraryRepository internal constructor(
         pool = pool.copy(tracks = pool.tracks.map(f)),
         playlists = playlists.map { p -> p.copy(tracks = p.tracks.map(f)) },
     )
+
+    private companion object {
+        /** new files per core transaction. */
+        const val BATCH = 200
+
+        /** what the core recognizes as music (`Track::is_music`); others aren't sent. */
+        val SONG_EXTENSIONS = setOf("mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "mid", "midi")
+    }
 }

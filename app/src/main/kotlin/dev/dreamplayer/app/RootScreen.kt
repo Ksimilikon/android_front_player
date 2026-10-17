@@ -22,6 +22,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,6 +36,7 @@ import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.feature.editor.PlaylistEditorTab
 import dev.dreamplayer.feature.exchange.ExportTab
 import dev.dreamplayer.feature.exchange.ImportTab
+import dev.dreamplayer.feature.logs.LogsTab
 import dev.dreamplayer.feature.meta.MetaEditorTab
 import dev.dreamplayer.feature.playlists.PlaylistsTab
 import dev.dreamplayer.feature.queue.QueueTab
@@ -42,6 +44,7 @@ import dev.dreamplayer.feature.settings.SettingsSheet
 import dev.dreamplayer.feature.song.SongTab
 import dev.dreamplayer.model.StatusKind
 import dev.dreamplayer.model.StatusMessage
+import dev.dreamplayer.ui.AlertBanner
 import dev.dreamplayer.ui.StatusBanner
 import dev.dreamplayer.ui.nav.DreamTabRow
 import dev.dreamplayer.ui.player.NowPlayingStrip
@@ -59,13 +62,26 @@ import kotlin.math.abs
 @Composable
 fun RootScreen(core: DreamCore, host: TabHost) {
     val playback by core.player.playback.collectAsStateWithLifecycle()
-    var status by remember {
-        mutableStateOf(
-            core.initError?.let { StatusMessage(it, StatusKind.Error) }
-                ?: core.previousCrash?.let { StatusMessage(it, StatusKind.Warn) },
-        )
+    // info / success — the bottom banner that hides itself; warnings and
+    // errors — the top one that stays until swiped away.
+    var status by remember { mutableStateOf<StatusMessage?>(null) }
+    val alerts = remember {
+        mutableStateListOf<StatusMessage>().apply {
+            core.previousCrash?.let { add(StatusMessage(it, StatusKind.Warn)) }
+            core.initError?.let { add(StatusMessage(it, StatusKind.Error)) }
+        }
     }
-    LaunchedEffect(Unit) { core.status.messages.collect { status = it } }
+    LaunchedEffect(Unit) {
+        core.status.messages.collect { m ->
+            when (m.kind) {
+                StatusKind.Warn, StatusKind.Error -> {
+                    alerts.add(m)
+                    if (alerts.size > MAX_ALERTS) alerts.removeAt(0)
+                }
+                else -> status = m
+            }
+        }
+    }
 
     val scope = rememberCoroutineScope()
     var sheetOpen by remember { mutableStateOf(false) }
@@ -99,6 +115,7 @@ fun RootScreen(core: DreamCore, host: TabHost) {
     val current = playback.currentTrack
     // Surface sets the content color (light text) for everything inside.
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         NowPlayingStrip(
             track = current,
@@ -123,6 +140,7 @@ fun RootScreen(core: DreamCore, host: TabHost) {
                     is TabSpec.EditMeta -> MetaEditorTab(core, host, tab.state)
                     is TabSpec.Import -> ImportTab(core, tab.state)
                     is TabSpec.Export -> ExportTab(core, tab.state)
+                    TabSpec.Logs -> LogsTab(core)
                     null -> {}
                 }
             }
@@ -145,6 +163,13 @@ fun RootScreen(core: DreamCore, host: TabHost) {
             onOpen = { current?.let(host::openSong) },
         )
     }
+    AlertBanner(
+        alerts = alerts,
+        onDismiss = { alerts.remove(it) },
+        onOpen = host::openLogs,
+        modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding(),
+    )
+    }
     }
 
     if (sheetOpen) {
@@ -153,3 +178,6 @@ fun RootScreen(core: DreamCore, host: TabHost) {
         }
     }
 }
+
+/** warnings / errors kept for the top banner; older ones are dropped. */
+private const val MAX_ALERTS = 20

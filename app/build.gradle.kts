@@ -38,6 +38,7 @@ dependencies {
     implementation(project(":feature:meta"))
     implementation(project(":feature:exchange"))
     implementation(project(":feature:settings"))
+    implementation(project(":feature:logs"))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.android)

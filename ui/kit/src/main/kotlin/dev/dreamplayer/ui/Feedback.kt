@@ -28,6 +28,28 @@ import dev.dreamplayer.model.StatusKind
 import dev.dreamplayer.model.StatusMessage
 import dev.dreamplayer.ui.theme.Dream
 import kotlinx.coroutines.delay
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.round
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.sign
 
 /**
  * the status banner (the TUI status line): shows the latest message, colored
@@ -65,6 +87,104 @@ fun StatusBanner(message: StatusMessage?, modifier: Modifier = Modifier) {
         }
     }
 }
+
+/**
+ * the top banner for warnings and errors. Unlike [StatusBanner] it doesn't
+ * time out: it stays until swiped away (sideways or up). Shows the newest of
+ * [alerts]; "ещё N" — older ones, revealed as the newer are dismissed. Tap —
+ * [onOpen] (the log with the details).
+ */
+@Composable
+fun AlertBanner(
+    alerts: List<StatusMessage>,
+    onDismiss: (StatusMessage) -> Unit,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // the last one stays drawn while the banner slides away.
+    var shown by remember { mutableStateOf<StatusMessage?>(null) }
+    alerts.lastOrNull()?.let { shown = it }
+    AnimatedVisibility(
+        visible = alerts.isNotEmpty(),
+        enter = slideInVertically { -it } + fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier,
+    ) {
+        val m = shown ?: return@AnimatedVisibility
+        key(m.stamp) { SwipeableAlert(m, more = alerts.size - 1, onDismiss = { onDismiss(m) }, onOpen = onOpen) }
+    }
+}
+
+@Composable
+private fun SwipeableAlert(m: StatusMessage, more: Int, onDismiss: () -> Unit, onOpen: () -> Unit) {
+    val color = Dream.colors.of(m.kind)
+    val offset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val scope = rememberCoroutineScope()
+    var size by remember { mutableStateOf(IntSize(1, 1)) }
+    // fades as it is dragged towards dismissal.
+    val progress = maxOf(abs(offset.value.x) / size.width, -offset.value.y / size.height).coerceIn(0f, 1f)
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        shape = RoundedCornerShape(10.dp),
+        shadowElevation = 6.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .onSizeChanged { size = it }
+            .offset { offset.value.round() }
+            .graphicsLayer { alpha = 1f - progress * 0.8f }
+            .pointerInput(Unit) {
+                detectDragGestures(
+                    onDragEnd = {
+                        scope.launch {
+                            val o = offset.value
+                            when {
+                                abs(o.x) > size.width * SWIPE_FRACTION -> {
+                                    offset.animateTo(Offset(sign(o.x) * size.width * 1.2f, o.y))
+                                    onDismiss()
+                                }
+                                -o.y > size.height * SWIPE_FRACTION -> {
+                                    offset.animateTo(Offset(o.x, -size.height * 1.5f))
+                                    onDismiss()
+                                }
+                                else -> offset.animateTo(Offset.Zero)
+                            }
+                        }
+                    },
+                    onDragCancel = { scope.launch { offset.animateTo(Offset.Zero) } },
+                ) { change, drag ->
+                    change.consume()
+                    // sideways freely, vertically only up.
+                    val next = offset.value + drag
+                    scope.launch { offset.snapTo(Offset(next.x, next.y.coerceAtMost(0f))) }
+                }
+            }
+            .border(1.dp, color.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+            .clickable(onClick = onOpen),
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                if (m.kind == StatusKind.Error) Icons.Filled.Error else Icons.Filled.Warning,
+                contentDescription = null,
+                tint = color,
+            )
+            Text(
+                m.text,
+                color = color,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+            )
+            if (more > 0) {
+                Text("ещё $more", color = Dream.colors.muted, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+    }
+}
+
+/** how far (of its size) the alert is dragged to be dismissed. */
+private const val SWIPE_FRACTION = 0.3f
 
 /** confirmation of a destructive action (the red y/N prompt of the TUI). */
 @Composable

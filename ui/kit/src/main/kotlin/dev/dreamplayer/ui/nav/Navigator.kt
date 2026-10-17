@@ -19,6 +19,9 @@ interface Navigator {
     fun openImport()
     fun openExport()
 
+    /** the log of the core calls, events and messages. */
+    fun openLogs()
+
     /** closes the current transient tab (editor cancel / save). */
     fun closeCurrent()
 }
