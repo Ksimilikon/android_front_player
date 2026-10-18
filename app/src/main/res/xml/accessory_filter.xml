@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- the computer makes the phone this accessory for a USB sync without adb
+     (TUI `:sync usb`, Android Open Accessory); must match sync/usb.rs. -->
+<resources>
+    <usb-accessory manufacturer="DreamPlayer" model="DreamPlayerSync" />
+</resources>

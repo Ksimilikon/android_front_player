@@ -9,6 +9,8 @@ import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.feature.editor.PlaylistEditorState
 import dev.dreamplayer.feature.exchange.ExportState
 import dev.dreamplayer.feature.exchange.ImportState
+import dev.dreamplayer.feature.exchange.LinkChoice
+import dev.dreamplayer.feature.exchange.SyncTabState
 import dev.dreamplayer.feature.meta.MetaEditorState
 import dev.dreamplayer.model.Track
 import dev.dreamplayer.ui.nav.Navigator
@@ -30,6 +32,8 @@ sealed class TabSpec(val id: String, val title: String, val closable: Boolean) {
     class Import(val state: ImportState) : TabSpec("import", "Импорт", closable = true)
     class Export(val state: ExportState) : TabSpec("export", "Экспорт", closable = true)
     data object Logs : TabSpec("logs", "Логи", closable = true)
+    class Sync(val state: SyncTabState) : TabSpec("sync", "Устройства", closable = true)
+    data object Orphans : TabSpec("orphans", "Вне плейлистов", closable = true)
 }
 
 /**
@@ -143,6 +147,19 @@ class TabHost(private val core: DreamCore) : Navigator {
     }
 
     override fun openLogs() = open(TabSpec.Logs)
+
+    override fun openOrphans() = open(TabSpec.Orphans)
+
+    override fun openSync() {
+        // an open tab keeps its form.
+        if (tabs.none { it is TabSpec.Sync }) open(TabSpec.Sync(SyncTabState())) else currentId = "sync"
+    }
+
+    /** the computer made the phone its USB accessory: the DEVICES tab, ready for a USB sync. */
+    fun openSyncUsb() {
+        openSync()
+        (tabs.firstOrNull { it is TabSpec.Sync } as? TabSpec.Sync)?.state?.link = LinkChoice.Usb
+    }
 
     override fun closeCurrent() = close(currentIndex)
 }

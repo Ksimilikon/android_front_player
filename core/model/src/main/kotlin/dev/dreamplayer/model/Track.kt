@@ -21,6 +21,8 @@ data class Track(
     val invalid: Boolean,
     val color: TrackColor?,
     val label: String?,
+    /** kept on purpose though in no playlist: the orphan collector skips it by default. */
+    val ignoreOrphan: Boolean = false,
 ) {
     val artistsLine: String get() = artists.joinToString(", ")
 

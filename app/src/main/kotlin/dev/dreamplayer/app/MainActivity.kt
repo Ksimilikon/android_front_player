@@ -1,7 +1,9 @@
 package dev.dreamplayer.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.usb.UsbManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
@@ -34,6 +36,17 @@ class MainActivity : ComponentActivity() {
             DreamTheme { RootScreen(core, host) }
         }
         requestPermissions()
+        if (savedInstanceState == null) onUsbAccessory(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        onUsbAccessory(intent)
+    }
+
+    /** the computer started a USB sync and the user let it open the app. */
+    private fun onUsbAccessory(intent: Intent?) {
+        if (intent?.action == UsbManager.ACTION_USB_ACCESSORY_ATTACHED) hostRef?.openSyncUsb()
     }
 
     private var hostRef: TabHost? = null

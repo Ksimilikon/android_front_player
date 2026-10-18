@@ -1,6 +1,7 @@
 package dev.dreamplayer.data
 
 import dev.dreamplayer.core.IdxStatus
+import dev.dreamplayer.core.OrphanFilter
 import dev.dreamplayer.covers.CoverLoader
 import dev.dreamplayer.model.Library
 import dev.dreamplayer.model.MetaEdit
@@ -173,6 +174,38 @@ class LibraryRepository internal constructor(
         return ok
     }
 
+    /**
+     * songs that are in no playlist (to clean up); [kept] — which of them:
+     * not marked "keep" (default), only the marked ones, or all. null — the
+     * core failed (reported).
+     */
+    suspend fun orphans(kept: OrphanView = OrphanView.Unmarked): List<Track>? {
+        val filter = when (kept) {
+            OrphanView.Unmarked -> OrphanFilter.NOT_IGNORED
+            OrphanView.Kept -> OrphanFilter.IGNORED
+            OrphanView.All -> OrphanFilter.ALL
+        }
+        val res = rt.call { idxGetOrphanTracks(filter) }
+        if (!res.isOk) status.error("не удалось найти песни вне плейлистов: ${describeIdx(res.status)}")
+        return res.takeIf { it.isOk }?.or(emptyList())?.map { it.toTrack() }
+    }
+
+    /**
+     * marks a song "keep though in no playlist" (the collector stops listing
+     * it) or clears the mark; the library copy is patched without a re-read.
+     */
+    suspend fun setKeepOrphan(track: Track, keep: Boolean): Boolean {
+        val id = track.id ?: return false
+        val code = rt.call { idxSetTrackIgnoreOrphan(id, keep) }
+        if (code != IdxStatus.OK) {
+            status.error("не удалось изменить пометку: ${describeIdx(code)}")
+            return false
+        }
+        state.update { lib -> lib.mapTracks { if (it.id == id) it.copy(ignoreOrphan = keep) else it } }
+        status.ok(if (keep) "«${track.title}» больше не показывается в сборщике" else "«${track.title}» снова показывается в сборщике")
+        return true
+    }
+
     /** saves the per-track volume; the library copy is patched without a re-read. */
     suspend fun setTrackVolume(id: Long, volume: Float): Boolean {
         val ok = rt.call { idxSetTrackVolume(id, volume) } == IdxStatus.OK
@@ -206,3 +239,6 @@ class LibraryRepository internal constructor(
         val SONG_EXTENSIONS = setOf("mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "mid", "midi")
     }
 }
+
+/** which songs in no playlist the collector shows. */
+enum class OrphanView { Unmarked, Kept, All }

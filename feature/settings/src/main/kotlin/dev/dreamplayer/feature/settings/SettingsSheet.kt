@@ -13,6 +13,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Terminal
@@ -61,6 +63,7 @@ fun SettingsSheet(core: DreamCore, nav: Navigator, onDone: () -> Unit) {
         SectionTitle("Обмен")
         Action("Импорт", "добавить пакет .dplr в библиотеку", Icons.Filled.Download) { nav.openImport(); onDone() }
         Action("Экспорт", "библиотеку, плейлисты или треки в пакет", Icons.Filled.Upload) { nav.openExport(); onDone() }
+        Action("Устройства", "синхронизация и передача: сеть, точка доступа, USB", Icons.Filled.Devices) { nav.openSync(); onDone() }
 
         SectionTitle("Библиотека")
         Action("Новый плейлист", null, Icons.AutoMirrored.Filled.PlaylistAdd) { nav.openNewPlaylist(); onDone() }
@@ -69,6 +72,7 @@ fun SettingsSheet(core: DreamCore, nav: Navigator, onDone: () -> Unit) {
         }
         Action("Сканировать другую папку…", null, Icons.Filled.CreateNewFolder) { pickFolder.launch(null) }
         Action("Удалить невалидные треки", "файлы которых больше нет", Icons.Filled.CleaningServices, danger = true) { cleaning = true }
+        Action("Песни вне плейлистов", "найти и удалить с устройства ненужные", Icons.Filled.DeleteSweep) { nav.openOrphans(); onDone() }
 
         SectionTitle("Воспроизведение")
         MasterVolume(playback.masterVolume) { core.player.setMasterVolume(it) }

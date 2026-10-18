@@ -36,9 +36,11 @@ import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.feature.editor.PlaylistEditorTab
 import dev.dreamplayer.feature.exchange.ExportTab
 import dev.dreamplayer.feature.exchange.ImportTab
+import dev.dreamplayer.feature.exchange.SyncTab
 import dev.dreamplayer.feature.logs.LogsTab
 import dev.dreamplayer.feature.meta.MetaEditorTab
 import dev.dreamplayer.feature.playlists.PlaylistsTab
+import dev.dreamplayer.feature.queue.OrphansTab
 import dev.dreamplayer.feature.queue.QueueTab
 import dev.dreamplayer.feature.settings.SettingsSheet
 import dev.dreamplayer.feature.song.SongTab
@@ -138,8 +140,10 @@ fun RootScreen(core: DreamCore, host: TabHost) {
                     is TabSpec.NewPlaylist -> PlaylistEditorTab(core, host, tab.state)
                     is TabSpec.EditPlaylist -> PlaylistEditorTab(core, host, tab.state)
                     is TabSpec.EditMeta -> MetaEditorTab(core, host, tab.state)
-                    is TabSpec.Import -> ImportTab(core, tab.state)
-                    is TabSpec.Export -> ExportTab(core, tab.state)
+                    is TabSpec.Import -> ImportTab(core, host, tab.state)
+                    is TabSpec.Export -> ExportTab(core, host, tab.state)
+                    is TabSpec.Sync -> SyncTab(core, tab.state)
+                    TabSpec.Orphans -> OrphansTab(core, host)
                     TabSpec.Logs -> LogsTab(core)
                     null -> {}
                 }

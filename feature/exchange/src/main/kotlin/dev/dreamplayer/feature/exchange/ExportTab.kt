@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.data.ExportFlags
 import dev.dreamplayer.data.ExportWhat
+import dev.dreamplayer.data.SyncMode
 import dev.dreamplayer.model.StatusKind
 import dev.dreamplayer.model.StatusMessage
 import dev.dreamplayer.ui.MessageLog
@@ -30,23 +32,36 @@ import dev.dreamplayer.ui.form.FormChoice
 import dev.dreamplayer.ui.form.FormSwitch
 import dev.dreamplayer.ui.form.SectionTitle
 import dev.dreamplayer.ui.list.ListRow
+import dev.dreamplayer.ui.nav.Navigator
 
 /**
  * EXPORT (`:export` of the TUI): the whole library, chosen playlists or chosen
- * tracks into a packet file created through the system picker.
+ * tracks into a packet file created through the system picker, or straight
+ * to another device (the DEVICES tab, mode "send").
  */
 @Composable
-fun ExportTab(core: DreamCore, state: ExportState) {
+fun ExportTab(core: DreamCore, nav: Navigator, state: ExportState) {
     val library by core.library.library.collectAsStateWithLifecycle()
-    val create = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val what = when (state.mode) {
+    val what = {
+        when (state.mode) {
             ExportMode.Library -> ExportWhat.Library
             // marked items, in list order.
             ExportMode.Playlists -> ExportWhat.Playlists(library.playlists.map { it.name }.filter(state.checkedPlaylists::contains))
             ExportMode.Tracks -> ExportWhat.Tracks(library.pool.tracks.mapNotNull { it.id }.filter(state.checkedTracks::contains))
         }
-        val flags = ExportFlags(state.audio, state.names, state.covers && state.mode != ExportMode.Tracks)
+    }
+    val flags = { ExportFlags(state.audio, state.names, state.covers && state.mode != ExportMode.Tracks) }
+    val nothingMarked = {
+        when (state.mode) {
+            ExportMode.Library -> false
+            ExportMode.Playlists -> state.checkedPlaylists.isEmpty()
+            ExportMode.Tracks -> state.checkedTracks.isEmpty()
+        }.also { if (it) state.log.add(StatusMessage("ничего не выбрано: отметьте элементы в списке", StatusKind.Warn)) }
+    }
+    val create = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val what = what()
+        val flags = flags()
         state.running = true
         core.launch {
             core.exchange.export(uri, what, flags) { state.log.add(it) }
@@ -68,21 +83,19 @@ fun ExportTab(core: DreamCore, state: ExportState) {
                 description = if (state.mode == ExportMode.Tracks) "недоступно без плейлистов" else null,
             )
             Button(
+                onClick = { if (!nothingMarked()) create.launch("dream_player_${System.currentTimeMillis() / 1000}.dplr") },
+                enabled = !state.running,
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp),
+            ) { Text("Экспортировать") }
+            OutlinedButton(
                 onClick = {
-                    val nothing = when (state.mode) {
-                        ExportMode.Library -> false
-                        ExportMode.Playlists -> state.checkedPlaylists.isEmpty()
-                        ExportMode.Tracks -> state.checkedTracks.isEmpty()
-                    }
-                    if (nothing) {
-                        state.log.add(StatusMessage("ничего не выбрано: отметьте элементы в списке", StatusKind.Warn))
-                    } else {
-                        create.launch("dream_player_${System.currentTimeMillis() / 1000}.dplr")
+                    if (!nothingMarked()) {
+                        core.sync.preset.value = SyncMode.Send(what(), flags())
+                        nav.openSync()
                     }
                 },
-                enabled = !state.running,
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
-            ) { Text("Экспортировать") }
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            ) { Text("Отправить на устройство") }
             if (state.running) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
             MessageLog(state.log)
         }

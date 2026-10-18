@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.PlaylistRemove
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
@@ -54,6 +55,7 @@ fun QueueTab(core: DreamCore, nav: Navigator, playlistName: String) {
     var query by rememberSaveable { mutableStateOf("") }
     var moving by remember { mutableStateOf<Int?>(null) }
     var removing by remember { mutableStateOf<Int?>(null) }
+    val deleteFromDevice = rememberDeviceDelete(core)
 
     // the filtered view keeps the real indices (for playback / moves).
     val view = if (searching) filterTracks(tracks, query) else tracks.indices.toList()
@@ -94,7 +96,7 @@ fun QueueTab(core: DreamCore, nav: Navigator, playlistName: String) {
                 track = t,
                 number = i + 1,
                 playing = queue != null && i == queue.current,
-                menu = menu(core, nav, t, i, tracks.size, queue != null, isPool, { moving = it }, { removing = it }),
+                menu = menu(core, nav, t, i, tracks.size, queue != null, isPool, { moving = it }, { removing = it }, deleteFromDevice),
                 onClick = {
                     if (queue != null) core.player.select(i) else core.player.playPlaylist(playlistName, i)
                 },
@@ -134,6 +136,7 @@ private fun menu(
     isPool: Boolean,
     onMove: (Int) -> Unit,
     onRemove: (Int) -> Unit,
+    onDeleteFromDevice: (List<Track>) -> Unit,
 ): List<MenuAction> = buildList {
     add(MenuAction("Подробнее", Icons.Filled.Info) { nav.openSong(t) })
     add(MenuAction("Изменить метаданные", Icons.Filled.Edit, enabled = t.id != null) { nav.openEditMeta(t) })
@@ -145,4 +148,8 @@ private fun menu(
         add(MenuAction("Убрать из очереди", Icons.Filled.PlaylistRemove) { core.player.remove(i, fromDb = false) })
     }
     if (!isPool) add(MenuAction("Удалить из плейлиста", Icons.Filled.Delete, danger = true) { onRemove(i) })
+    // the pool is the whole library: here a song can go from the device itself.
+    if (isPool) {
+        add(MenuAction("Удалить с устройства", Icons.Filled.DeleteForever, danger = true, enabled = t.path != null) { onDeleteFromDevice(listOf(t)) })
+    }
 }

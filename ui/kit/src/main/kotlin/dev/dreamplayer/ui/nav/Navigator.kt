@@ -22,6 +22,12 @@ interface Navigator {
     /** the log of the core calls, events and messages. */
     fun openLogs()
 
+    /** library sync / transfer with other devices and the paired devices. */
+    fun openSync()
+
+    /** songs that are in no playlist, to delete from the device. */
+    fun openOrphans()
+
     /** closes the current transient tab (editor cancel / save). */
     fun closeCurrent()
 }

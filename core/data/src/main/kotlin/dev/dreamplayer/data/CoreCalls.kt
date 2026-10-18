@@ -2,6 +2,8 @@ package dev.dreamplayer.data
 
 import android.content.Context
 import dev.dreamplayer.core.CdcStatus
+import dev.dreamplayer.core.ConDevice
+import dev.dreamplayer.core.ConStatus
 import dev.dreamplayer.core.CoreResult
 import dev.dreamplayer.core.DecodeResult
 import dev.dreamplayer.core.EngineStatus
@@ -9,7 +11,11 @@ import dev.dreamplayer.core.IdxStatus
 import dev.dreamplayer.core.ImportPrepared
 import dev.dreamplayer.core.InitStatus
 import dev.dreamplayer.core.Native
+import dev.dreamplayer.core.PairedDevice
 import dev.dreamplayer.core.PlaylistInfo
+import dev.dreamplayer.core.SyncEvent
+import dev.dreamplayer.core.SyncFile
+import dev.dreamplayer.core.SyncStatus
 import dev.dreamplayer.core.TrackEndListener
 import dev.dreamplayer.core.TrackMeta
 import dev.dreamplayer.model.LogSource
@@ -87,6 +93,10 @@ internal class CoreCalls(private val log: CoreLog) {
 
     fun idxGetPlaylists(): CoreResult<List<PlaylistInfo>> = result(Sys.Idx, "idxGetPlaylists()") { Native.idxGetPlaylists() }
     fun idxGetTracks(): CoreResult<List<TrackMeta>> = result(Sys.Idx, "idxGetTracks()") { Native.idxGetTracks() }
+    fun idxGetOrphanTracks(filter: Int): CoreResult<List<TrackMeta>> =
+        result(Sys.Idx, "idxGetOrphanTracks($filter)") { Native.idxGetOrphanTracks(filter) }
+    fun idxSetTrackIgnoreOrphan(id: Long, ignore: Boolean) =
+        code(Sys.Idx, "idxSetTrackIgnoreOrphan($id, $ignore)") { Native.idxSetTrackIgnoreOrphan(id, ignore) }
     fun idxGetTrack(id: Long, path: String?): CoreResult<TrackMeta> =
         result(Sys.Idx, "idxGetTrack($id, ${q(path)})", show = { q(it.title) }) { Native.idxGetTrack(id, path) }
     fun idxIndexDir(dir: String?) = code(Sys.Idx, "idxIndexDir(${q(dir)})") { Native.idxIndexDir(dir) }
@@ -171,6 +181,63 @@ internal class CoreCalls(private val log: CoreLog) {
         log.add(LogSource.Call, StatusKind.Info, "cdcImportCancel($session)")
     }
 
+    // ── devices ──
+
+    fun conGetPubKey() = result(Sys.Con, "conGetPubKey()", show = { "${it.size} B" }) { Native.conGetPubKey() }
+    fun conAdd() = result(Sys.Con, "conAdd()") { Native.conAdd() }
+    fun conConnect(id: Long) = code(Sys.Con, "conConnect($id)") { Native.conConnect(id) }
+    fun conDisconnect(id: Long) = code(Sys.Con, "conDisconnect($id)") { Native.conDisconnect(id) }
+    fun conRemove(id: Long) = code(Sys.Con, "conRemove($id)") { Native.conRemove(id) }
+    /** polled while a transfer runs. */
+    fun conGetDevices(): CoreResult<List<ConDevice>> = result(Sys.Con, "conGetDevices()", quiet = true) { Native.conGetDevices() }
+    fun conGetPaired(): CoreResult<List<PairedDevice>> = result(Sys.Con, "conGetPaired()") { Native.conGetPaired() }
+    fun conRename(pairedId: Long, name: String) = code(Sys.Con, "conRename($pairedId, ${q(name)})") { Native.conRename(pairedId, name) }
+    fun conForget(pairedId: Long) = code(Sys.Con, "conForget($pairedId)") { Native.conForget(pairedId) }
+
+    // ── sync ──
+
+    fun syncNew(con: Long, host: Boolean) = result(Sys.Sync, "syncNew($con, host=$host)") { Native.syncNew(con, host) }
+
+    fun syncNewSend(
+        con: Long,
+        host: Boolean,
+        what: Int,
+        names: Array<String>?,
+        ids: LongArray?,
+        withAudio: Boolean,
+        withNames: Boolean,
+        withCovers: Boolean,
+    ) = result(
+        Sys.Sync,
+        "syncNewSend($con, host=$host, what=$what, [${names?.size ?: ids?.size ?: 0}], audio=$withAudio, names=$withNames, covers=$withCovers)",
+    ) { Native.syncNewSend(con, host, what, names, ids, withAudio, withNames, withCovers) }
+
+    fun syncNewReceive(con: Long, host: Boolean, force: Boolean) =
+        result(Sys.Sync, "syncNewReceive($con, host=$host, force=$force)") { Native.syncNewReceive(con, host, force) }
+
+    fun syncFree(session: Long) {
+        Native.syncFree(session)
+        log.add(LogSource.Call, StatusKind.Info, "syncFree($session)")
+    }
+
+    // the transfer loop: logged only when they fail.
+    fun syncFeed(session: Long, data: ByteArray, len: Int) =
+        code(Sys.Sync, "syncFeed($session, $len B)", quiet = true) { Native.syncFeed(session, data, len) }
+    fun syncWriteOutput(session: Long, fd: Int) =
+        code(Sys.Sync, "syncWriteOutput($session)", quiet = true) { Native.syncWriteOutput(session, fd) }
+    fun syncPollEvent(session: Long): SyncEvent? = Native.syncPollEvent(session)
+    fun syncFinished(session: Long): Boolean = Native.syncFinished(session)
+
+    fun syncImportFiles(session: Long): CoreResult<List<SyncFile>> =
+        result(Sys.Sync, "syncImportFiles($session)") { Native.syncImportFiles(session) }
+    fun syncImportWriteFile(session: Long, index: Int, fd: Int) =
+        code(Sys.Sync, "syncImportWriteFile($session, #$index)") { Native.syncImportWriteFile(session, index, fd) }
+    fun syncImportDone(session: Long, paths: Array<String?>) =
+        code(Sys.Sync, "syncImportDone($session, [${paths.count { it != null }}/${paths.size}])") {
+            Native.syncImportDone(session, paths)
+        }
+    fun syncCancel(session: Long) = code(Sys.Sync, "syncCancel($session)") { Native.syncCancel(session) }
+
     // ───────────────────────── internals ─────────────────────────
 
     /** a subsystem: its status texts, the codes that are warnings, its `PANIC`. */
@@ -179,12 +246,14 @@ internal class CoreCalls(private val log: CoreLog) {
         Engine(::describeEngine, EngineStatus.PANIC, setOf(EngineStatus.CONFIG_WRITE_FAILED)),
         Idx(::describeIdx, IdxStatus.PANIC, emptySet()),
         Cdc(::describeCdc, CdcStatus.PANIC, setOf(CdcStatus.OUTDATED)),
+        Con(::describeCon, ConStatus.PANIC, emptySet()),
+        Sync(::describeSync, SyncStatus.PANIC, emptySet()),
     }
 
-    private inline fun code(sys: Sys, call: String, merge: Boolean = false, block: () -> Int): Int {
+    private inline fun code(sys: Sys, call: String, merge: Boolean = false, quiet: Boolean = false, block: () -> Int): Int {
         val start = System.nanoTime()
         val status = block()
-        report(sys, call, status, null, start, merge)
+        if (!(quiet && status == 0)) report(sys, call, status, null, start, merge)
         return status
     }
 

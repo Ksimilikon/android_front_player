@@ -20,4 +20,5 @@ internal fun TrackMeta.toTrack() = Track(
     invalid = invalid,
     color = TrackColor.of(color),
     label = label,
+    ignoreOrphan = ignoreOrphan,
 )

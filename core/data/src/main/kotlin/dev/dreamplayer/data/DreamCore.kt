@@ -25,6 +25,12 @@ class DreamCore private constructor(context: Context) {
     val library = LibraryRepository(rt, status, paths.music)
     val player: PlayerController
     val exchange: ExchangeRepository
+
+    /** library sync / transfer with other devices. */
+    val sync: SyncRepository
+
+    /** deleting songs from the device (file + library). */
+    val files: TrackFiles
     val covers = CoverStore(context, paths)
 
     /**
@@ -52,6 +58,8 @@ class DreamCore private constructor(context: Context) {
         initError?.let { log.add(LogSource.Event, StatusKind.Error, it) }
         player = PlayerController(rt, library, scope, status, log)
         exchange = ExchangeRepository(context, rt, paths, library, log)
+        sync = SyncRepository(context, rt, library, exchange, status, log, scope)
+        files = TrackFiles(context, rt, library, player, status)
         AudioRouteWatcher(context, player, log).start()
         scope.launch { library.reload() }
     }

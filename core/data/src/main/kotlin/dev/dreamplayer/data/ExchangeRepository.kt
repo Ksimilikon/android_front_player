@@ -132,14 +132,27 @@ class ExchangeRepository internal constructor(
         return true
     }
 
-    private class Written(val path: String, val uri: Uri?)
+    internal class Written(val path: String, val uri: Uri?)
+
+    /** fills an open descriptor with a file's bytes (the core writes them); false — failed. */
+    internal fun interface Fill {
+        suspend fun into(fd: Int): Boolean
+    }
+
+    private fun importFill(session: Long, index: Int) = Fill { fd -> rt.call { cdcImportWriteFile(session, index, fd) } == CdcStatus.OK }
+
+    private suspend fun writeSong(session: Long, index: Int, name: String, subdir: String): Result<Written> =
+        saveSong(name, subdir, importFill(session, index))
+
+    private suspend fun writeCover(session: Long, index: Int, name: String): Result<Written> =
+        saveCover(name, importFill(session, index))
 
     /** a song into the shared music collection; MediaStore resolves name clashes itself. */
-    private suspend fun writeSong(session: Long, index: Int, name: String, subdir: String): Result<Written> {
+    internal suspend fun saveSong(name: String, subdir: String, fill: Fill): Result<Written> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             // before scoped storage: a plain file (WRITE_EXTERNAL_STORAGE).
             val dir = File(paths.music, subdir).apply { mkdirs() }
-            return writeFile(session, index, paths.unique(dir, name))
+            return saveFile(paths.unique(dir, name), fill)
         }
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
@@ -149,12 +162,10 @@ class ExchangeRepository internal constructor(
         }
         val collection = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
         val uri = resolver.insert(collection, values) ?: return Result.failure(IllegalStateException("MediaStore отказал"))
-        val code = runCatching {
-            resolver.openFileDescriptor(uri, "w")!!.use { pfd -> rt.call { cdcImportWriteFile(session, index, pfd.fd) } }
-        }.getOrElse { CdcStatus.WRITE_FAILED }
-        if (code != CdcStatus.OK) {
+        val ok = runCatching { resolver.openFileDescriptor(uri, "w")!!.use { pfd -> fill.into(pfd.fd) } }.getOrDefault(false)
+        if (!ok) {
             resolver.delete(uri, null, null)
-            return Result.failure(IllegalStateException(describeCdc(code)))
+            return Result.failure(IllegalStateException("не удалось записать"))
         }
         resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null)
         val path = dataPath(uri) ?: run {
@@ -164,18 +175,28 @@ class ExchangeRepository internal constructor(
         return Result.success(Written(path, uri))
     }
 
-    private suspend fun writeCover(session: Long, index: Int, name: String): Result<Written> =
-        writeFile(session, index, paths.unique(paths.covers, name))
+    /** a cover into the app's covers directory. */
+    internal suspend fun saveCover(name: String, fill: Fill): Result<Written> =
+        saveFile(paths.unique(paths.covers, name), fill)
 
-    private suspend fun writeFile(session: Long, index: Int, file: File): Result<Written> {
-        val code = runCatching {
+    /**
+     * writes over an existing file by path; false — not allowed / failed (on
+     * scoped storage only files this app created are writable by path).
+     */
+    internal suspend fun overwrite(path: String, fill: Fill): Boolean = runCatching {
+        val mode = ParcelFileDescriptor.MODE_WRITE_ONLY or ParcelFileDescriptor.MODE_TRUNCATE
+        ParcelFileDescriptor.open(File(path), mode).use { pfd -> fill.into(pfd.fd) }
+    }.getOrDefault(false)
+
+    private suspend fun saveFile(file: File, fill: Fill): Result<Written> {
+        val ok = runCatching {
             val mode = ParcelFileDescriptor.MODE_WRITE_ONLY or ParcelFileDescriptor.MODE_CREATE or
                 ParcelFileDescriptor.MODE_TRUNCATE
-            ParcelFileDescriptor.open(file, mode).use { pfd -> rt.call { cdcImportWriteFile(session, index, pfd.fd) } }
-        }.getOrElse { CdcStatus.WRITE_FAILED }
-        if (code != CdcStatus.OK) {
+            ParcelFileDescriptor.open(file, mode).use { pfd -> fill.into(pfd.fd) }
+        }.getOrDefault(false)
+        if (!ok) {
             file.delete()
-            return Result.failure(IllegalStateException(describeCdc(code)))
+            return Result.failure(IllegalStateException("не удалось записать ${file.name}"))
         }
         return Result.success(Written(file.path, null))
     }

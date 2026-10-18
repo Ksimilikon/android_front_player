@@ -21,20 +21,23 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.dreamplayer.data.DreamCore
+import dev.dreamplayer.data.SyncMode
 import dev.dreamplayer.model.StatusKind
 import dev.dreamplayer.model.StatusMessage
 import dev.dreamplayer.ui.MessageLog
 import dev.dreamplayer.ui.form.FormSwitch
 import dev.dreamplayer.ui.form.FormTextField
 import dev.dreamplayer.ui.form.SectionTitle
+import dev.dreamplayer.ui.nav.Navigator
 
 /**
  * IMPORT (`:import` of the TUI): a packet file into the library. The core
  * checks the packet, new songs go to Music/<folder> (MediaStore), covers into
- * the app's storage.
+ * the app's storage. The same import can come straight from another device
+ * (the DEVICES tab, mode "receive").
  */
 @Composable
-fun ImportTab(core: DreamCore, state: ImportState) {
+fun ImportTab(core: DreamCore, nav: Navigator, state: ImportState) {
     val context = LocalContext.current
     val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -80,6 +83,13 @@ fun ImportTab(core: DreamCore, state: ImportState) {
             enabled = !state.running,
             modifier = Modifier.fillMaxWidth().padding(16.dp),
         ) { Text("Импортировать") }
+        OutlinedButton(
+            onClick = {
+                core.sync.preset.value = SyncMode.Receive(state.force)
+                nav.openSync()
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        ) { Text("Принять с устройства") }
         if (state.running) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         MessageLog(state.log)
     }
