@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import dev.dreamplayer.core.IdxStatus
+import dev.dreamplayer.covers.CoverLoader
 import dev.dreamplayer.model.Track
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,7 +19,8 @@ import java.io.File
  * library. Android 11+ lets an app delete other apps' media only after the
  * user agrees in a system dialog, so it is two steps: [requestDelete] gives
  * the dialog (null — not needed), [finishDelete] deletes what is allowed and
- * cleans the library.
+ * cleans the library. Embedding a cover ([embedCover]) asks to write the
+ * same way.
  */
 class TrackFiles internal constructor(
     private val context: Context,
@@ -70,6 +72,36 @@ class TrackFiles internal constructor(
             codes.any { it != IdxStatus.OK } -> status.error("файлы удалены, но не все песни убраны из библиотеки")
             else -> status.ok(if (removed == 1) "песня удалена с устройства" else "удалено с устройства: $removed")
         }
+    }
+
+    /**
+     * embeds [picture] (png / jpg) into the audio file of [track] and dates
+     * the file as changed, so sync sends it again. When the core couldn't
+     * write another app's file, Android 11+ gives the system dialog asking to
+     * allow it: after the user agrees call this again with [asked] = true.
+     * null — finished (the outcome is reported).
+     */
+    suspend fun embedCover(track: Track, picture: String, asked: Boolean = false): IntentSender? {
+        val id = track.id ?: run {
+            status.warn("трек не из библиотеки")
+            return null
+        }
+        val code = rt.call { idxEmbedTrackCover(id, picture) }
+        if (code == IdxStatus.WRITE_FAILED && !asked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val uri = withContext(Dispatchers.IO) { track.path?.let(::mediaUri) }
+            if (uri != null) return MediaStore.createWriteRequest(resolver, listOf(uri)).intentSender
+        }
+        when (code) {
+            IdxStatus.OK -> {
+                rt.call { idxSetTrackFileChanged(id) }
+                track.path?.let { CoverLoader.invalidate(listOf(it)) }
+                status.ok("обложка встроена в файл")
+            }
+            IdxStatus.INVALID_ARGUMENT -> status.error("встроить можно только PNG или JPEG")
+            IdxStatus.WRITE_FAILED -> status.error("не удалось записать файл песни")
+            else -> status.error("не удалось встроить обложку: ${describeIdx(code)}")
+        }
+        return null
     }
 
     private fun exists(path: String) = File(path).exists()

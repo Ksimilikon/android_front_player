@@ -198,14 +198,14 @@ class LibraryRepository internal constructor(
                 }
                 e.album?.let { add(idxSetTrackAlbum(e.id, it.ifEmpty { null })) }
                 e.genres?.let { add(idxSetTrackGenres(e.id, it.toTypedArray())) }
-                e.coverPath?.let { add(idxSetTrackCover(e.id, it)) }
+                if (e.clearCover) add(idxSetTrackCover(e.id, null)) else e.coverPath?.let { add(idxSetTrackCover(e.id, it)) }
                 if (e.setColor) add(idxSetTrackColor(e.id, e.color?.id))
                 e.label?.let { add(idxSetTrackLabel(e.id, it.ifEmpty { null })) }
             }
             codes.firstOrNull { it != IdxStatus.OK } ?: IdxStatus.OK
         }
         val ok = code == IdxStatus.OK
-        if (e.coverPath != null) CoverLoader.invalidate()
+        if (e.coverPath != null || e.clearCover) CoverLoader.invalidate()
         reload()
         if (ok) status.ok("метаданные сохранены") else status.error("часть метаданных не сохранилась: ${describeIdx(code)}")
         return ok

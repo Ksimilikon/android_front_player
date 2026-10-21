@@ -19,8 +19,26 @@ class MetaEditorState(val track: Track) {
     var genres by mutableStateOf(track.genres.joinToString(", "))
     /** a newly chosen cover (already copied into the app); null — unchanged. */
     var newCover by mutableStateOf<String?>(null)
+    /** drop the separate cover file (the one embedded in the audio file stays). */
+    var removeCover by mutableStateOf(false)
+    /** on save, also embed [cover] into the audio file. */
+    var embedCover by mutableStateOf(false)
     var color by mutableStateOf(track.color)
     var label by mutableStateOf(track.label.orEmpty())
+
+    /** the separate cover file as it will be after saving (null — none). */
+    val cover: String? get() = if (removeCover) null else newCover ?: track.coverArt
+
+    fun pickCover(path: String) {
+        newCover = path
+        removeCover = false
+    }
+
+    fun dropCover() {
+        newCover = null
+        removeCover = true
+        embedCover = false
+    }
 
     /**
      * the edit set (as `to_edit` in the TUI): an empty title / artists means
@@ -33,6 +51,7 @@ class MetaEditorState(val track: Track) {
         album = album.trim(),
         genres = splitList(genres),
         coverPath = newCover,
+        clearCover = removeCover && track.coverArt != null,
         setColor = color != track.color,
         color = color,
         label = label.trim(),

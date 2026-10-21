@@ -20,6 +20,8 @@ data class MetaEdit(
     val genres: List<String>? = null,
     /** path of the new cover file. */
     val coverPath: String? = null,
+    /** true — drop the separate cover file (the embedded one stays). */
+    val clearCover: Boolean = false,
     /** true — set [color] (null clears). */
     val setColor: Boolean = false,
     val color: TrackColor? = null,

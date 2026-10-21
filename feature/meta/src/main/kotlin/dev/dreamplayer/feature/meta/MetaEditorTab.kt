@@ -1,6 +1,8 @@
 package dev.dreamplayer.feature.meta
 
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -27,13 +29,18 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.dreamplayer.common.formatDuration
 import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.ui.CoverImage
+import dev.dreamplayer.ui.form.FormSwitch
 import dev.dreamplayer.ui.form.FormTextField
 import dev.dreamplayer.ui.form.InfoLine
 import dev.dreamplayer.ui.form.SectionTitle
@@ -53,24 +60,50 @@ fun MetaEditorTab(core: DreamCore, nav: Navigator, state: MetaEditorState) {
         if (uri != null) {
             scope.launch {
                 val path = core.covers.importCover(uri)
-                if (path != null) state.newCover = path else core.status.error("не удалось скопировать обложку")
+                if (path != null) state.pickCover(path) else core.status.error("не удалось скопировать обложку")
             }
         }
+    }
+    // the picture being embedded while the system asks to allow writing the song file.
+    var embedding by remember { mutableStateOf<String?>(null) }
+    val writeConsent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+        val picture = embedding
+        embedding = null
+        if (picture != null && res.resultCode == Activity.RESULT_OK) {
+            core.launch { core.files.embedCover(t, picture, asked = true) }
+        } else {
+            core.status.info("обложка не встроена: запись файла не разрешена")
+        }
+        nav.closeCurrent()
     }
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                CoverImage(state.newCover ?: t.coverArt, t.path, Modifier.size(96.dp), shape = RoundedCornerShape(12.dp))
+                // without the separate file: what is embedded in the audio file.
+                CoverImage(state.cover, t.path, Modifier.size(96.dp), shape = RoundedCornerShape(12.dp))
                 Column(Modifier.padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     OutlinedButton(onClick = {
                         pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }) { Text("Выбрать обложку") }
-                    if (state.newCover != null) {
-                        Text("новая обложка будет сохранена", style = MaterialTheme.typography.bodySmall, color = Dream.colors.playing)
+                    if (state.cover != null) {
+                        OutlinedButton(onClick = state::dropCover) { Text("Убрать обложку") }
+                    }
+                    when {
+                        state.newCover != null ->
+                            Text("новая обложка будет сохранена", style = MaterialTheme.typography.bodySmall, color = Dream.colors.playing)
+                        state.removeCover && t.coverArt != null ->
+                            Text("обложка будет убрана; встроенная в файл останется", style = MaterialTheme.typography.bodySmall, color = Dream.colors.playing)
                     }
                 }
             }
+            FormSwitch(
+                "Встроить обложку в файл",
+                state.embedCover,
+                { state.embedCover = it },
+                description = if (state.cover != null) "PNG или JPEG: картинка запишется в теги аудиофайла" else "сначала выберите обложку",
+                enabled = state.cover != null,
+            )
 
             SectionTitle("Теги")
             FormTextField("Название", state.title, { state.title = it }, supporting = "пусто — не менять")
@@ -102,8 +135,18 @@ fun MetaEditorTab(core: DreamCore, nav: Navigator, state: MetaEditorState) {
                         core.status.warn("трек не из библиотеки")
                         return@Button
                     }
+                    val picture = state.cover?.takeIf { state.embedCover }
                     core.launch {
-                        if (core.library.applyMeta(state.toEdit())) withContext(Dispatchers.Main) { nav.closeCurrent() }
+                        if (!core.library.applyMeta(state.toEdit())) return@launch
+                        val consent = picture?.let { core.files.embedCover(t, it) }
+                        withContext(Dispatchers.Main) {
+                            if (consent != null) {
+                                embedding = picture
+                                writeConsent.launch(IntentSenderRequest.Builder(consent).build())
+                            } else {
+                                nav.closeCurrent()
+                            }
+                        }
                     }
                 },
                 modifier = Modifier.weight(1f),

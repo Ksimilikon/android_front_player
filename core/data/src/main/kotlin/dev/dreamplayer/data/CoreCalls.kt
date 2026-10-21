@@ -108,6 +108,8 @@ internal class CoreCalls(private val log: CoreLog) {
         code(Sys.Idx, "idxSetTrackAlbum($id, ${q(album)})") { Native.idxSetTrackAlbum(id, album) }
     fun idxSetTrackCover(id: Long, coverPath: String?) =
         code(Sys.Idx, "idxSetTrackCover($id, ${q(coverPath)})") { Native.idxSetTrackCover(id, coverPath) }
+    fun idxEmbedTrackCover(id: Long, imagePath: String) =
+        code(Sys.Idx, "idxEmbedTrackCover($id, ${q(imagePath)})") { Native.idxEmbedTrackCover(id, imagePath) }
     fun idxSetTrackColor(id: Long, color: String?) =
         code(Sys.Idx, "idxSetTrackColor($id, ${q(color)})") { Native.idxSetTrackColor(id, color) }
     fun idxSetTrackLabel(id: Long, label: String?) =
