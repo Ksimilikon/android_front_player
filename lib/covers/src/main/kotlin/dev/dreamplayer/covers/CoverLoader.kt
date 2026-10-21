@@ -5,13 +5,19 @@ import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
  * loads covers for display. Priority (as in the TUI): the separate cover file
  * from the index, then the picture embedded in the audio file. Results
- * (including "no cover") are cached by (source, size bucket).
+ * (including "no cover") are cached by (source, size bucket); files written
+ * over (a sync, a new cover) are forgotten with [invalidate], and [changes]
+ * tells the shown covers to look again.
  */
 object CoverLoader {
     /** ~24 MiB of decoded bitmaps. */
@@ -20,6 +26,11 @@ object CoverLoader {
     }
 
     private class Entry(val bitmap: Bitmap?)
+
+    private val generation = MutableStateFlow(0L)
+
+    /** bumped on every invalidation: shown covers re-read the cache. */
+    val changes: StateFlow<Long> = generation.asStateFlow()
 
     /** a cached result without touching the disk (null — not loaded yet). */
     fun peek(coverPath: String?, audioPath: String?, sizePx: Int): Result? =
@@ -36,8 +47,25 @@ object CoverLoader {
         return Result(bmp)
     }
 
-    /** forget cached covers of a track (after its cover was changed). */
-    fun invalidate() = cache.evictAll()
+    /** forget every cached cover (after a cover was changed). */
+    fun invalidate() {
+        cache.evictAll()
+        generation.update { it + 1 }
+    }
+
+    /**
+     * forget the covers read from [paths] (cover files or audio files that
+     * were written over); the rest of the cache stays.
+     */
+    fun invalidate(paths: Collection<String>) {
+        if (paths.isEmpty()) return
+        val gone = paths.toSet()
+        for (key in cache.snapshot().keys) {
+            val (cover, audio) = key.split(SEP)
+            if (cover in gone || audio in gone) cache.remove(key)
+        }
+        generation.update { it + 1 }
+    }
 
     @JvmInline
     value class Result(val bitmap: Bitmap?)
@@ -45,8 +73,11 @@ object CoverLoader {
     private fun key(cover: String?, audio: String?, size: Int): String {
         // buckets of 64px: neighbouring sizes share an entry.
         val bucket = ((size + 63) / 64) * 64
-        return "${cover.orEmpty()}|${audio.orEmpty()}|$bucket"
+        return "${cover.orEmpty()}$SEP${audio.orEmpty()}$SEP$bucket"
     }
+
+    /** a character no path holds. */
+    private const val SEP = '\u0000'
 
     private fun fromFile(path: String, size: Int): Bitmap? {
         if (!File(path).isFile) return null

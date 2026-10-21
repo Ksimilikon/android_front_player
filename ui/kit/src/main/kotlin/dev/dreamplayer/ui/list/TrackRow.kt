@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -30,6 +31,8 @@ fun TrackRow(
     leadingExtra: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     menu: List<MenuAction> = emptyList(),
+    menuOpen: MutableState<Boolean>? = null,
+    gestures: Modifier = Modifier,
     onClick: () -> Unit = {},
 ) {
     ListRow(
@@ -40,6 +43,8 @@ fun TrackRow(
         selected = selected,
         dimmed = track.invalid,
         menu = menu,
+        menuOpen = menuOpen,
+        gestures = gestures,
         onClick = onClick,
         leading = {
             leadingExtra?.invoke()

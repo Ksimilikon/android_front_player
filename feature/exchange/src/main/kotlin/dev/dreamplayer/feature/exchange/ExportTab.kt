@@ -50,7 +50,7 @@ fun ExportTab(core: DreamCore, nav: Navigator, state: ExportState) {
             ExportMode.Tracks -> ExportWhat.Tracks(library.pool.tracks.mapNotNull { it.id }.filter(state.checkedTracks::contains))
         }
     }
-    val flags = { ExportFlags(state.audio, state.names, state.covers && state.mode != ExportMode.Tracks) }
+    val flags = { ExportFlags(state.audio, state.names, state.covers) }
     val nothingMarked = {
         when (state.mode) {
             ExportMode.Library -> false
@@ -79,8 +79,7 @@ fun ExportTab(core: DreamCore, nav: Navigator, state: ExportState) {
                 "Обложки",
                 state.covers,
                 { state.covers = it },
-                enabled = state.mode != ExportMode.Tracks,
-                description = if (state.mode == ExportMode.Tracks) "недоступно без плейлистов" else null,
+                description = if (state.mode == ExportMode.Tracks) "обложки песен (не вшитые в файл)" else "обложки песен и плейлистов",
             )
             Button(
                 onClick = { if (!nothingMarked()) create.launch("dream_player_${System.currentTimeMillis() / 1000}.dplr") },

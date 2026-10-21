@@ -122,12 +122,15 @@ internal class CoreCalls(private val log: CoreLog) {
         result(Sys.Idx, "idxAddTracks([${paths.size}])") { Native.idxAddTracks(paths) }
     fun idxSetTrackVolume(id: Long, volume: Float) =
         code(Sys.Idx, "idxSetTrackVolume($id, $volume)") { Native.idxSetTrackVolume(id, volume) }
+    fun idxSetTrackFileChanged(id: Long) = code(Sys.Idx, "idxSetTrackFileChanged($id)") { Native.idxSetTrackFileChanged(id) }
     fun idxRemoveTrack(id: Long) = code(Sys.Idx, "idxRemoveTrack($id)") { Native.idxRemoveTrack(id) }
     fun idxRemoveInvalidTracks() = result(Sys.Idx, "idxRemoveInvalidTracks()") { Native.idxRemoveInvalidTracks() }
     fun idxSavePlaylist(name: String, trackIds: LongArray, cover: String?) =
         code(Sys.Idx, "idxSavePlaylist(${q(name)}, [${trackIds.size}], ${q(cover)})") {
             Native.idxSavePlaylist(name, trackIds, cover)
         }
+    fun idxSetPlaylistCover(name: String, cover: String?) =
+        code(Sys.Idx, "idxSetPlaylistCover(${q(name)}, ${q(cover)})") { Native.idxSetPlaylistCover(name, cover) }
     fun idxRemovePlaylist(name: String) = code(Sys.Idx, "idxRemovePlaylist(${q(name)})") { Native.idxRemovePlaylist(name) }
 
     // ── packets ──
@@ -137,9 +140,9 @@ internal class CoreCalls(private val log: CoreLog) {
             Native.cdcPackLibrary(version, withAudio, withNames, withCovers, fd)
         }
 
-    fun cdcPackTracks(version: Int, ids: LongArray, withAudio: Boolean, withNames: Boolean, fd: Int) =
-        code(Sys.Cdc, "cdcPackTracks(v$version, [${ids.size}], audio=$withAudio, names=$withNames)") {
-            Native.cdcPackTracks(version, ids, withAudio, withNames, fd)
+    fun cdcPackTracks(version: Int, ids: LongArray, withAudio: Boolean, withNames: Boolean, withCovers: Boolean, fd: Int) =
+        code(Sys.Cdc, "cdcPackTracks(v$version, [${ids.size}], audio=$withAudio, names=$withNames, covers=$withCovers)") {
+            Native.cdcPackTracks(version, ids, withAudio, withNames, withCovers, fd)
         }
 
     fun cdcPackPlaylists(

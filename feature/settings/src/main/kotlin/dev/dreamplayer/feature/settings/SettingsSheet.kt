@@ -39,6 +39,7 @@ import dev.dreamplayer.common.percent
 import dev.dreamplayer.data.DEFAULT_OUTPUT
 import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.ui.ConfirmDialog
+import dev.dreamplayer.ui.form.FormSwitch
 import dev.dreamplayer.ui.form.SectionTitle
 import dev.dreamplayer.ui.list.ListRow
 import dev.dreamplayer.ui.nav.Navigator
@@ -77,6 +78,15 @@ fun SettingsSheet(core: DreamCore, nav: Navigator, onDone: () -> Unit) {
         SectionTitle("Воспроизведение")
         MasterVolume(playback.masterVolume) { core.player.setMasterVolume(it) }
         OutputDevices(core)
+
+        SectionTitle("Интерфейс")
+        val autoClose by core.settings.autoClosePlaylist.collectAsStateWithLifecycle()
+        FormSwitch(
+            "Закрывать вкладку плейлиста",
+            autoClose,
+            core.settings::setAutoClosePlaylist,
+            description = "когда уходишь с неё на другую вкладку",
+        )
 
         SectionTitle("Диагностика")
         Action("Логи", "вызовы ядра, события и сообщения", Icons.Filled.Terminal) { nav.openLogs(); onDone() }

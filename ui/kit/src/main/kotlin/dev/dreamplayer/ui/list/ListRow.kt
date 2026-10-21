@@ -18,6 +18,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,7 +48,9 @@ data class MenuAction(
  * the one row every list is made of: leading slot (number / cover / checkbox),
  * title + subtitle, trailing slot. [highlighted] — the playing item (green
  * text and a bar on the left, as the green line in the TUI); [dimmed] —
- * unavailable (an invalid track). A long press opens [menu].
+ * unavailable (an invalid track). A long press opens [menu], unless the
+ * caller opens it itself through [menuOpen] (the long press drags the row).
+ * [gestures] — touch handling of the row that comes before its click.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -61,9 +64,12 @@ fun ListRow(
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     menu: List<MenuAction> = emptyList(),
+    menuOpen: MutableState<Boolean>? = null,
+    gestures: Modifier = Modifier,
     onClick: () -> Unit = {},
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
+    val ownMenu = remember { mutableStateOf(false) }
+    var open by (menuOpen ?: ownMenu)
     val accent = Dream.colors.playing
     Box(modifier.fillMaxWidth()) {
         Row(
@@ -80,8 +86,9 @@ fun ListRow(
                 )
                 .combinedClickable(
                     onClick = onClick,
-                    onLongClick = if (menu.isNotEmpty()) ({ menuOpen = true }) else null,
+                    onLongClick = if (menu.isNotEmpty() && menuOpen == null) ({ open = true }) else null,
                 )
+                .then(gestures)
                 .alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -117,7 +124,7 @@ fun ListRow(
                 trailing?.invoke()
             }
         }
-        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }, offset = DpOffset(48.dp, 0.dp)) {
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }, offset = DpOffset(48.dp, 0.dp)) {
             for (a in menu) {
                 val color = if (a.danger) Dream.colors.error else MaterialTheme.colorScheme.onSurface
                 DropdownMenuItem(
@@ -125,7 +132,7 @@ fun ListRow(
                     leadingIcon = a.icon?.let { { Icon(it, contentDescription = null, tint = color) } },
                     enabled = a.enabled,
                     onClick = {
-                        menuOpen = false
+                        open = false
                         a.onClick()
                     },
                 )

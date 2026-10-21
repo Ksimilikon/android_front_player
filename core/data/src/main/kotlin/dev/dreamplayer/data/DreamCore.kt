@@ -22,7 +22,8 @@ class DreamCore private constructor(context: Context) {
 
     val paths = StoragePaths(context)
     val status = StatusBus(log)
-    val library = LibraryRepository(rt, status, paths.music)
+    val covers = CoverStore(context, paths)
+    val library = LibraryRepository(rt, status, paths.music, covers)
     val player: PlayerController
     val exchange: ExchangeRepository
 
@@ -31,7 +32,7 @@ class DreamCore private constructor(context: Context) {
 
     /** deleting songs from the device (file + library). */
     val files: TrackFiles
-    val covers = CoverStore(context, paths)
+    val settings = AppSettings(context)
 
     /**
      * why the native core failed to start (null — it is running). Without the
@@ -57,7 +58,7 @@ class DreamCore private constructor(context: Context) {
         previousCrash?.let { log.add(LogSource.Event, StatusKind.Warn, it) }
         initError?.let { log.add(LogSource.Event, StatusKind.Error, it) }
         player = PlayerController(rt, library, scope, status, log)
-        exchange = ExchangeRepository(context, rt, paths, library, log)
+        exchange = ExchangeRepository(context, rt, paths, library, log, covers)
         sync = SyncRepository(context, rt, library, exchange, status, log, scope)
         files = TrackFiles(context, rt, library, player, status)
         AudioRouteWatcher(context, player, log).start()

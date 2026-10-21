@@ -13,6 +13,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,8 +41,10 @@ fun CoverImage(
 ) {
     BoxWithConstraints(modifier.clip(shape).background(MaterialTheme.colorScheme.surfaceContainerHighest)) {
         val px = with(LocalDensity.current) { maxOf(maxWidth, maxHeight).roundToPx() }.coerceAtLeast(64)
-        var result by remember(coverPath, audioPath, px) { mutableStateOf(CoverLoader.peek(coverPath, audioPath, px)) }
-        LaunchedEffect(coverPath, audioPath, px) {
+        // a file written over: what was shown is looked up again (forgotten ones are re-read).
+        val generation by CoverLoader.changes.collectAsState()
+        var result by remember(coverPath, audioPath, px, generation) { mutableStateOf(CoverLoader.peek(coverPath, audioPath, px)) }
+        LaunchedEffect(coverPath, audioPath, px, generation) {
             if (result == null) result = CoverLoader.load(coverPath, audioPath, px)
         }
         val bmp = result?.bitmap

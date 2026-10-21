@@ -1,18 +1,20 @@
 package dev.dreamplayer.feature.queue
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlaylistRemove
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -23,12 +25,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dreamplayer.common.filterTracks
 import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.model.Track
 import dev.dreamplayer.ui.ConfirmDialog
-import dev.dreamplayer.ui.PositionDialog
+import dev.dreamplayer.ui.CoverImage
 import dev.dreamplayer.ui.form.SearchBox
 import dev.dreamplayer.ui.list.DreamList
 import dev.dreamplayer.ui.list.ListHeader
@@ -37,27 +40,32 @@ import dev.dreamplayer.ui.list.TrackRow
 import dev.dreamplayer.ui.nav.Navigator
 
 /**
- * the tab of an opened playlist. While this playlist is the playing queue, the
- * queue is shown (with its temporary reorders / removals) and the playing
- * track is highlighted; otherwise — the playlist from the library. Opening
- * doesn't start playback: a tap on a track does.
+ * a playlist as it is in the library (its saved order). Opening doesn't start
+ * playback: a tap on a track plays the playlist from it and goes to the
+ * queue. A tap on the cover picks a new one.
  */
 @Composable
-fun QueueTab(core: DreamCore, nav: Navigator, playlistName: String) {
+fun PlaylistTab(core: DreamCore, nav: Navigator, playlistName: String) {
     val library by core.library.library.collectAsStateWithLifecycle()
     val playback by core.player.playback.collectAsStateWithLifecycle()
     val playlist = library.find(playlistName)
-    val queue = playback.queue?.takeIf { it.name == playlistName }
-    val tracks = queue?.tracks ?: playlist?.tracks.orEmpty()
-    val isPool = playlist?.isPool ?: queue?.isPool ?: false
+    val tracks = playlist?.tracks.orEmpty()
+    val isPool = playlist?.isPool ?: false
+    val playingHere = playback.queue?.name == playlistName
 
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    var moving by remember { mutableStateOf<Int?>(null) }
     var removing by remember { mutableStateOf<Int?>(null) }
     val deleteFromDevice = rememberDeviceDelete(core)
+    val pickCover = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            core.launch {
+                val path = core.covers.importCover(uri)
+                if (path != null) core.library.setPlaylistCover(playlistName, path) else core.status.error("не удалось скопировать обложку")
+            }
+        }
+    }
 
-    // the filtered view keeps the real indices (for playback / moves).
     val view = if (searching) filterTracks(tracks, query) else tracks.indices.toList()
 
     Column(Modifier.fillMaxSize()) {
@@ -70,8 +78,22 @@ fun QueueTab(core: DreamCore, nav: Navigator, playlistName: String) {
                         title = playlistName,
                         subtitle = buildString {
                             append("${tracks.size} песен")
-                            if (queue != null) append(" · играет")
-                            if (playlist == null && queue == null) append(" · плейлист не найден")
+                            if (playingHere) append(" · играет")
+                            if (playlist == null) append(" · плейлист не найден")
+                        },
+                        leading = if (playlist != null && !isPool) {
+                            {
+                                CoverImage(
+                                    playlist.coverArt ?: tracks.firstOrNull()?.coverArt,
+                                    tracks.firstOrNull()?.path,
+                                    Modifier.size(40.dp).clickable {
+                                        pickCover.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    },
+                                    shape = RoundedCornerShape(6.dp),
+                                )
+                            }
+                        } else {
+                            null
                         },
                     ) {
                         IconButton(onClick = { searching = !searching; if (!searching) query = "" }) {
@@ -82,7 +104,7 @@ fun QueueTab(core: DreamCore, nav: Navigator, playlistName: String) {
                                 Icon(Icons.Filled.Tune, contentDescription = "Изменить плейлист")
                             }
                         }
-                        IconButton(onClick = { core.player.playPlaylist(playlistName, 0) }, enabled = tracks.isNotEmpty()) {
+                        IconButton(onClick = { core.player.playPlaylist(playlistName, 0); nav.openPlaying() }, enabled = tracks.isNotEmpty()) {
                             Icon(Icons.Filled.PlayArrow, contentDescription = "Воспроизвести с начала")
                         }
                     }
@@ -95,61 +117,46 @@ fun QueueTab(core: DreamCore, nav: Navigator, playlistName: String) {
             TrackRow(
                 track = t,
                 number = i + 1,
-                playing = queue != null && i == queue.current,
-                menu = menu(core, nav, t, i, tracks.size, queue != null, isPool, { moving = it }, { removing = it }, deleteFromDevice),
+                playing = playingHere && playback.isCurrent(t),
+                menu = buildList {
+                    addAll(trackInfoActions(nav, t))
+                    if (!isPool) add(MenuAction("Удалить из плейлиста", Icons.Filled.Delete, danger = true) { removing = i })
+                    // the pool is the whole library: here a song can go from the device itself.
+                    if (isPool) {
+                        add(MenuAction("Удалить с устройства", Icons.Filled.DeleteForever, danger = true, enabled = t.path != null) {
+                            deleteFromDevice(listOf(t))
+                        })
+                    }
+                },
                 onClick = {
-                    if (queue != null) core.player.select(i) else core.player.playPlaylist(playlistName, i)
+                    // the playing track: pause / resume instead of starting it over.
+                    if (playingHere && playback.isCurrent(t)) {
+                        core.player.playPause()
+                    } else {
+                        core.player.playPlaylist(playlistName, i)
+                        nav.openPlaying()
+                    }
                 },
             )
         }
     }
 
-    moving?.let { from ->
-        PositionDialog(tracks.size, onConfirm = { to -> core.player.move(from, to) }, onDismiss = { moving = null })
-    }
     removing?.let { i ->
         ConfirmDialog(
             title = "Удалить из плейлиста?",
             text = "«${tracks.getOrNull(i)?.title}» будет удалён из «$playlistName» в библиотеке.",
             confirmLabel = "Удалить",
             onConfirm = {
-                if (queue != null) {
-                    core.player.remove(i, fromDb = true)
-                } else {
-                    val ids = tracks.filterIndexed { j, _ -> j != i }.mapNotNull(Track::id)
-                    core.launch { core.library.savePlaylist(playlistName, ids) }
-                }
+                val ids = tracks.filterIndexed { j, _ -> j != i }.mapNotNull(Track::id)
+                core.launch { core.library.savePlaylist(playlistName, ids) }
             },
             onDismiss = { removing = null },
         )
     }
 }
 
-/** the long-press menu of a track (the TUI SONG tab commands). */
-private fun menu(
-    core: DreamCore,
-    nav: Navigator,
-    t: Track,
-    i: Int,
-    size: Int,
-    isQueue: Boolean,
-    isPool: Boolean,
-    onMove: (Int) -> Unit,
-    onRemove: (Int) -> Unit,
-    onDeleteFromDevice: (List<Track>) -> Unit,
-): List<MenuAction> = buildList {
-    add(MenuAction("Подробнее", Icons.Filled.Info) { nav.openSong(t) })
-    add(MenuAction("Изменить метаданные", Icons.Filled.Edit, enabled = t.id != null) { nav.openEditMeta(t) })
-    if (isQueue) {
-        // temporary: the queue only, not written to the db.
-        add(MenuAction("Выше", Icons.Filled.ArrowUpward, enabled = i > 0) { core.player.move(i, i - 1) })
-        add(MenuAction("Ниже", Icons.Filled.ArrowDownward, enabled = i + 1 < size) { core.player.move(i, i + 1) })
-        add(MenuAction("На позицию…", Icons.Filled.SwapVert) { onMove(i) })
-        add(MenuAction("Убрать из очереди", Icons.Filled.PlaylistRemove) { core.player.remove(i, fromDb = false) })
-    }
-    if (!isPool) add(MenuAction("Удалить из плейлиста", Icons.Filled.Delete, danger = true) { onRemove(i) })
-    // the pool is the whole library: here a song can go from the device itself.
-    if (isPool) {
-        add(MenuAction("Удалить с устройства", Icons.Filled.DeleteForever, danger = true, enabled = t.path != null) { onDeleteFromDevice(listOf(t)) })
-    }
-}
+/** the menu items every track list has: details and the metadata editor. */
+internal fun trackInfoActions(nav: Navigator, t: Track): List<MenuAction> = listOf(
+    MenuAction("Подробнее", Icons.Filled.Info) { nav.openSong(t) },
+    MenuAction("Изменить метаданные", Icons.Filled.Edit, enabled = t.id != null) { nav.openEditMeta(t) },
+)

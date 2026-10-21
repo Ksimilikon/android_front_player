@@ -92,7 +92,8 @@ class PlayerController internal constructor(
 
     /**
      * removes queue track [index]; [fromDb] — also from the playlist in the db
-     * (only for a real playlist, not the pool).
+     * (only for a real playlist, not the pool). The rest of the queue keeps
+     * its temporary order.
      */
     fun remove(index: Int, fromDb: Boolean) = launch {
         val q = state.value.queue ?: return@launch
@@ -101,11 +102,34 @@ class PlayerController internal constructor(
             status.warn("из пула нельзя удалить через плейлист")
             return@launch
         }
+        val removed = q.tracks[index]
         val tracks = q.tracks.toMutableList().apply { removeAt(index) }
         var current = if (index < q.current) q.current - 1 else q.current
         current = current.coerceAtMost((tracks.size - 1).coerceAtLeast(0))
-        state.update { it.copy(queue = q.copy(tracks = tracks, current = current)) }
-        if (fromDb) library.savePlaylist(q.name, tracks.mapNotNull(Track::id))
+        // the db list without the track: the coming library refresh sees no change.
+        val sourceIds = if (fromDb) q.sourceIds.toMutableList().apply { removed.id?.let(::remove) } else q.sourceIds
+        state.update { it.copy(queue = q.copy(tracks = tracks, current = current, sourceIds = sourceIds)) }
+        if (fromDb) removed.id?.let { library.removeFromPlaylist(q.name, it) }
+    }
+
+    /**
+     * saves the queue in its current order as playlist [name] (the one it
+     * came from — overwritten, another name — a new playlist, which the queue
+     * follows from then on, even when it came from the pool).
+     */
+    fun saveQueueAs(name: String) = launch {
+        val q = state.value.queue ?: return@launch
+        val ids = q.tracks.mapNotNull(Track::id)
+        // before the save, so the library refresh finds the saved order equal to the queue.
+        state.update { it.copy(queue = q.copy(name = name, isPool = false, sourceIds = ids)) }
+        if (!library.savePlaylist(name, ids, cover = library.library.value.find(name)?.coverArt)) {
+            state.update { s -> s.queue?.takeIf { it.name == name }?.let { s.copy(queue = it.copy(name = q.name, isPool = q.isPool, sourceIds = q.sourceIds)) } ?: s }
+        }
+    }
+
+    /** playlist [from] was renamed to [to]: a queue taken from it follows the name. */
+    fun renamePlaylist(from: String, to: String) = launch {
+        state.update { s -> s.queue?.takeIf { it.name == from }?.let { s.copy(queue = it.copy(name = to)) } ?: s }
     }
 
     // ───────────────────────── transport ─────────────────────────
@@ -357,23 +381,23 @@ class PlayerController internal constructor(
 
     /**
      * rebuilds the queue tracks from the updated library (as `refresh_playing`
-     * in the TUI): when the playlist's set of tracks changed in the db, the
-     * queue is taken from it again; otherwise the queue keeps its own
-     * (temporary) order and only refreshes the track data.
+     * in the TUI): when the playlist changed in the db (tracks or their
+     * order), the queue is taken from it again; otherwise the queue keeps its
+     * own (temporary) order and only refreshes the track data.
      */
     private fun refreshQueue(lib: Library) {
         val q = state.value.queue ?: return
         val src = lib.find(q.name)
+        val srcIds = src?.tracks?.mapNotNull(Track::id)
         val byId = lib.pool.tracks.filter { it.id != null }.associateBy { it.id }
-        val ids = { l: List<Track> -> l.mapNotNull(Track::id).toSet() }
         val tracks = when {
-            src != null && ids(src.tracks) != ids(q.tracks) -> src.tracks
+            src != null && srcIds != q.sourceIds -> src.tracks
             else -> q.tracks.map { t -> t.id?.let(byId::get) ?: t }
         }
         val cur = q.currentTrack?.key
         val current = tracks.indexOfFirst { it.id != null && it.id == cur?.id }.takeIf { it >= 0 }
             ?: q.current.coerceAtMost((tracks.size - 1).coerceAtLeast(0))
-        state.update { it.copy(queue = q.copy(tracks = tracks, current = current)) }
+        state.update { it.copy(queue = q.copy(tracks = tracks, current = current, sourceIds = srcIds ?: q.sourceIds)) }
     }
 
     private companion object {

@@ -6,6 +6,7 @@ import dev.dreamplayer.core.ConProcess
 import dev.dreamplayer.core.ConState
 import dev.dreamplayer.core.ImportFileKind
 import dev.dreamplayer.core.SyncEvent
+import dev.dreamplayer.covers.CoverLoader
 import dev.dreamplayer.core.SyncEventKind
 import dev.dreamplayer.core.SyncStatus
 import dev.dreamplayer.core.SyncWhat
@@ -273,7 +274,8 @@ class SyncRepository internal constructor(
     /**
      * writes the files of a received portion: a song over the local file with
      * the same name if the app may write it, otherwise into `Music/[subdir]`;
-     * covers into the app's storage.
+     * covers (of playlists and, v0.12+, the songs' own cover files) into the
+     * app's storage.
      */
     private suspend fun import(session: Long, subdir: String) {
         val files = native.syncImportFiles(session).or(emptyList())
@@ -291,6 +293,8 @@ class SyncRepository internal constructor(
         }
         val code = native.syncImportDone(session, paths.toTypedArray())
         if (code != SyncStatus.OK) say(StatusKind.Error, "импорт: ${describeSync(code)}")
+        // a song written over its old file may carry another cover: forget what was read from these files.
+        CoverLoader.invalidate(paths.filterNotNull())
     }
 
     private suspend fun report(ev: SyncEvent) {

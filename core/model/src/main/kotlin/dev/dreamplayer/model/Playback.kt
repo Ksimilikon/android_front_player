@@ -8,6 +8,12 @@ data class Queue(
     val tracks: List<Track>,
     /** index of the playing track in [tracks]. */
     val current: Int,
+    /**
+     * the track ids of the playlist in the db when the queue last took them:
+     * a different list there (a save of the playlist) replaces the queue's
+     * temporary order.
+     */
+    val sourceIds: List<Long> = tracks.mapNotNull(Track::id),
 ) {
     val currentTrack: Track? get() = tracks.getOrNull(current)
 }

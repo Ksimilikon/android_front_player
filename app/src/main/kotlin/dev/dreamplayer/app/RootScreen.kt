@@ -41,7 +41,8 @@ import dev.dreamplayer.feature.logs.LogsTab
 import dev.dreamplayer.feature.meta.MetaEditorTab
 import dev.dreamplayer.feature.playlists.PlaylistsTab
 import dev.dreamplayer.feature.queue.OrphansTab
-import dev.dreamplayer.feature.queue.QueueTab
+import dev.dreamplayer.feature.queue.PlayingTab
+import dev.dreamplayer.feature.queue.PlaylistTab
 import dev.dreamplayer.feature.settings.SettingsSheet
 import dev.dreamplayer.feature.song.SongTab
 import dev.dreamplayer.model.StatusKind
@@ -112,6 +113,10 @@ fun RootScreen(core: DreamCore, host: TabHost) {
             .collect { (_, page) -> host.onSettled(page) }
     }
 
+    // the PLAYING tab exists while something is chosen for playback; it is titled after the queue.
+    val queueName = playback.queue?.name
+    LaunchedEffect(queueName) { host.syncPlaying(queueName) }
+
     BackHandler(enabled = host.current != TabSpec.Playlists) { host.back() }
 
     val current = playback.currentTrack
@@ -125,7 +130,13 @@ fun RootScreen(core: DreamCore, host: TabHost) {
             onClick = { current?.let(host::openSong) },
             modifier = Modifier.statusBarsPadding(),
         )
-        DreamTabRow(host.titles, host.currentIndex, onSelect = host::select, onClose = host::close)
+        DreamTabRow(
+            host.titles,
+            host.currentIndex,
+            onSelect = host::select,
+            onClose = host::close,
+            position = { pager.currentPage + pager.currentPageOffsetFraction },
+        )
 
         Box(Modifier.weight(1f).fillMaxWidth().imePadding()) {
             HorizontalPager(
@@ -135,7 +146,8 @@ fun RootScreen(core: DreamCore, host: TabHost) {
             ) { page ->
                 when (val tab = host.tabs.getOrNull(page)) {
                     TabSpec.Playlists -> PlaylistsTab(core, host)
-                    is TabSpec.Queue -> QueueTab(core, host, tab.name)
+                    TabSpec.Playing -> PlayingTab(core, host)
+                    is TabSpec.Playlist -> PlaylistTab(core, host, tab.name)
                     is TabSpec.Song -> SongTab(core, host, tab.track)
                     is TabSpec.NewPlaylist -> PlaylistEditorTab(core, host, tab.state)
                     is TabSpec.EditPlaylist -> PlaylistEditorTab(core, host, tab.state)

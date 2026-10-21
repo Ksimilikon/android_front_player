@@ -20,6 +20,7 @@ class LibraryRepository internal constructor(
     private val rt: CoreRuntime,
     private val status: StatusBus,
     private val musicDir: File,
+    private val covers: CoverStore,
 ) {
     private val state = MutableStateFlow(Library.EMPTY)
     val library: StateFlow<Library> = state.asStateFlow()
@@ -49,7 +50,21 @@ class LibraryRepository internal constructor(
             }
             Library(Playlist(Library.POOL_NAME, pool, isPool = true), playlists) to IdxStatus.OK
         }
-        if (lib != null) state.value = lib else status.error("не удалось прочитать библиотеку: ${describeIdx(code)}")
+        if (lib == null) {
+            status.error("не удалось прочитать библиотеку: ${describeIdx(code)}")
+            return
+        }
+        state.value = lib
+        sweepCovers(lib)
+    }
+
+    /**
+     * deletes cover files nothing references any more (a cover replaced in
+     * the editor or by sync, a removed playlist / track). Only after a
+     * successful read: a failed one would make every cover look unused.
+     */
+    private suspend fun sweepCovers(lib: Library) {
+        covers.sweep((lib.pool.tracks.map { it.coverArt } + lib.playlists.map { it.coverArt }).filterNotNull())
     }
 
     /**
@@ -126,13 +141,17 @@ class LibraryRepository internal constructor(
             .toSet()
 
     /**
-     * creates / updates playlist [name] from [ids] (in this order). When the
-     * playlist was renamed ([previousName] differs), the old one is removed
-     * and its cover carried over.
+     * creates / updates playlist [name] from [ids] (in this order) with
+     * [cover] — by default the one it has (under [previousName] when it is
+     * being renamed). When the playlist was renamed, the old one is removed.
      */
-    suspend fun savePlaylist(name: String, ids: List<Long>, previousName: String? = null): Boolean {
+    suspend fun savePlaylist(
+        name: String,
+        ids: List<Long>,
+        previousName: String? = null,
+        cover: String? = state.value.find(previousName ?: name)?.coverArt,
+    ): Boolean {
         val renamed = previousName != null && previousName != name
-        val cover = previousName?.let { state.value.find(it)?.coverArt }
         val code = rt.call {
             val saved = idxSavePlaylist(name, ids.toLongArray(), cover)
             if (saved == IdxStatus.OK && renamed) idxRemovePlaylist(previousName!!) else saved
@@ -140,6 +159,24 @@ class LibraryRepository internal constructor(
         val ok = code == IdxStatus.OK
         reload()
         if (ok) status.ok("плейлист сохранён: $name") else status.error("не удалось сохранить плейлист: ${describeIdx(code)}")
+        return ok
+    }
+
+    /** removes the first occurrence of track [id] from playlist [name] (the rest keeps its order). */
+    suspend fun removeFromPlaylist(name: String, id: Long): Boolean {
+        val pl = state.value.find(name)?.takeIf { !it.isPool } ?: return false
+        val ids = pl.tracks.mapNotNull(Track::id).toMutableList()
+        if (!ids.remove(id)) return false
+        return savePlaylist(name, ids)
+    }
+
+    /** the cover of playlist [name] alone (null — clear); its tracks stay as they are. */
+    suspend fun setPlaylistCover(name: String, cover: String?): Boolean {
+        val code = rt.call { idxSetPlaylistCover(name, cover) }
+        val ok = code == IdxStatus.OK
+        reload()
+        if (ok) status.ok(if (cover == null) "обложка убрана" else "обложка плейлиста изменена")
+        else status.error("не удалось изменить обложку: ${describeIdx(code)}")
         return ok
     }
 

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -36,7 +37,7 @@ fun <T> DreamList(
     header: (@Composable () -> Unit)? = null,
     emptyText: String = "пусто",
     bottomPadding: PaddingValues = PaddingValues(bottom = 72.dp),
-    row: @Composable (index: Int, item: T) -> Unit,
+    row: @Composable LazyItemScope.(index: Int, item: T) -> Unit,
 ) {
     Column(modifier.fillMaxSize()) {
         header?.invoke()
@@ -58,6 +59,7 @@ fun ListHeader(
     title: String,
     modifier: Modifier = Modifier,
     subtitle: String? = null,
+    leading: (@Composable () -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -66,6 +68,7 @@ fun ListHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            leading?.invoke()
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (subtitle != null) {

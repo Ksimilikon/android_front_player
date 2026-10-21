@@ -38,6 +38,7 @@ class ExchangeRepository internal constructor(
     private val paths: StoragePaths,
     private val library: LibraryRepository,
     private val coreLog: CoreLog,
+    private val covers: CoverStore,
 ) {
     private val resolver get() = context.contentResolver
 
@@ -60,7 +61,7 @@ class ExchangeRepository internal constructor(
                         is ExportWhat.Playlists -> cdcPackPlaylists(
                             PACKET_VERSION, what.names.toTypedArray(), flags.audio, flags.names, flags.covers, pfd.fd,
                         )
-                        is ExportWhat.Tracks -> cdcPackTracks(PACKET_VERSION, what.ids.toLongArray(), flags.audio, flags.names, pfd.fd)
+                        is ExportWhat.Tracks -> cdcPackTracks(PACKET_VERSION, what.ids.toLongArray(), flags.audio, flags.names, flags.covers, pfd.fd)
                     }
                 }
                 size = pfd.statSize
@@ -108,6 +109,7 @@ class ExchangeRepository internal constructor(
             val res = runCatching {
                 when (f.kind) {
                     ImportFileKind.SONG -> writeSong(prepared.session, i, f.name, subdir)
+                    // a playlist cover or (v0.12+) a song's own cover file.
                     else -> writeCover(prepared.session, i, f.name)
                 }
             }.getOrElse { Result.failure(it) }
@@ -177,7 +179,7 @@ class ExchangeRepository internal constructor(
 
     /** a cover into the app's covers directory. */
     internal suspend fun saveCover(name: String, fill: Fill): Result<Written> =
-        saveFile(paths.unique(paths.covers, name), fill)
+        saveFile(covers.newFile(name), fill)
 
     /**
      * writes over an existing file by path; false — not allowed / failed (on

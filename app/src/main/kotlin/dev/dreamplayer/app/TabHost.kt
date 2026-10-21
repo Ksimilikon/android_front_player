@@ -20,8 +20,14 @@ import dev.dreamplayer.ui.nav.TabTitle
 sealed class TabSpec(val id: String, val title: String, val closable: Boolean) {
     data object Playlists : TabSpec("playlists", "Плейлисты", closable = false)
 
-    /** the opened playlist (one tab, its content is replaced). */
-    class Queue(val name: String) : TabSpec("queue", name, closable = true)
+    /** the playing queue (titled after its playlist, see [TabHost.titles]); closing it stops playback. */
+    data object Playing : TabSpec("playing", "Играет", closable = true)
+
+    /**
+     * a playlist of the library (one tab, its content is replaced); closes
+     * itself once another tab is chosen, unless that is off in the settings.
+     */
+    class Playlist(val name: String) : TabSpec("playlist", name, closable = true)
 
     /** one song: opened only from the player bar / top strip / "Подробнее". */
     class Song(val track: Track) : TabSpec("song", "Песня", closable = true)
@@ -38,8 +44,8 @@ sealed class TabSpec(val id: String, val title: String, val closable: Boolean) {
 
 /**
  * the open tabs and the current one (the TUI `screens` + `current`), also the
- * [Navigator] the tabs talk to. Order: PLAYLISTS, the playlist tab, other
- * transient tabs, and the song tab always last — it closes itself as soon
+ * [Navigator] the tabs talk to. Order: PLAYLISTS, the playing queue, the
+ * playlist tab, other transient tabs, and the song tab always last — it closes itself as soon
  * as another tab becomes current, and being last its removal never shifts the
  * index of the current tab.
  */
@@ -53,19 +59,68 @@ class TabHost(private val core: DreamCore) : Navigator {
 
     val currentIndex: Int by derivedStateOf { tabs.indexOfFirst { it.id == currentId }.coerceAtLeast(0) }
     val current: TabSpec get() = tabs[currentIndex]
-    val titles: List<TabTitle> get() = tabs.map { TabTitle(it.title, it.closable) }
+    /** the playlist the queue was taken from; the PLAYING tab is titled after it. */
+    private var playingName by mutableStateOf<String?>(null)
+
+    val titles: List<TabTitle>
+        get() = tabs.map { tab ->
+            // a star tells the queue from the playlist tab of the same name.
+            val title = if (tab is TabSpec.Playing) playingName?.let { short(it) + "*" } ?: tab.title else tab.title
+            TabTitle(title, tab.closable)
+        }
 
     fun select(index: Int) {
         tabs.getOrNull(index)?.let { currentId = it.id }
     }
 
-    /** the pager settled on [index] (a swipe or the end of a scroll). */
+    /**
+     * the pager settled on [index] (a swipe or the end of a scroll). Leaving
+     * the song tab closes it; leaving the playlist tab closes it too (if the
+     * setting is on), unless the new tab was opened from it (an editor).
+     */
     fun onSettled(index: Int) {
         val tab = tabs.getOrNull(index) ?: return
         currentId = tab.id
         if (tab !is TabSpec.Song) {
             val song = tabs.indexOfFirst { it is TabSpec.Song }
             if (song >= 0) tabs.removeAt(song)
+        }
+        if (core.settings.autoClosePlaylist.value && tab !is TabSpec.Playlist && !openedFrom(tab.id, PLAYLIST)) {
+            val playlist = tabs.indexOfFirst { it is TabSpec.Playlist }
+            if (playlist >= 0) {
+                origin.remove(PLAYLIST)
+                tabs.removeAt(playlist)
+            }
+        }
+    }
+
+    /** [id] was opened (maybe through other tabs) from tab [ancestor]. */
+    private fun openedFrom(id: String, ancestor: String): Boolean {
+        var at = origin[id]
+        val seen = mutableSetOf(id)
+        while (at != null && seen.add(at)) {
+            if (at == ancestor) return true
+            at = origin[at]
+        }
+        return false
+    }
+
+    /**
+     * keeps the PLAYING tab in step with the player ([queueName] — the
+     * playlist of the queue, null — none): it appears (without becoming
+     * current) when playback is chosen elsewhere and goes away when it stops.
+     */
+    fun syncPlaying(queueName: String?) {
+        playingName = queueName
+        val hasQueue = queueName != null
+        val i = tabs.indexOf(TabSpec.Playing)
+        when {
+            hasQueue && i < 0 -> tabs.add(1, TabSpec.Playing)
+            !hasQueue && i >= 0 -> {
+                if (currentId == TabSpec.Playing.id) currentId = TabSpec.Playlists.id
+                origin.remove(TabSpec.Playing.id)
+                tabs.removeAt(i)
+            }
         }
     }
 
@@ -78,12 +133,14 @@ class TabHost(private val core: DreamCore) : Navigator {
         }
         origin.remove(tab.id)
         tabs.removeAt(index)
+        // nothing to show the queue in: playback ends with the tab.
+        if (tab is TabSpec.Playing) core.player.stop()
     }
 
     /** system back: close a transient tab, otherwise return to PLAYLISTS. false — nothing to do. */
     fun back(): Boolean = when (val tab = current) {
         TabSpec.Playlists -> false
-        is TabSpec.Queue -> true.also { currentId = TabSpec.Playlists.id }
+        TabSpec.Playing -> true.also { currentId = TabSpec.Playlists.id }
         else -> true.also { close(tabs.indexOf(tab)) }
     }
 
@@ -94,7 +151,8 @@ class TabHost(private val core: DreamCore) : Navigator {
             // same id: the content may differ (another playlist / song) — replace.
             existing >= 0 -> tabs[existing] = spec
             spec is TabSpec.Song -> tabs.add(spec)
-            spec is TabSpec.Queue -> tabs.add(1, spec)
+            spec is TabSpec.Playing -> tabs.add(1, spec)
+            spec is TabSpec.Playlist -> tabs.add(if (TabSpec.Playing in tabs) 2 else 1, spec)
             else -> {
                 val song = tabs.indexOfFirst { it is TabSpec.Song }
                 if (song >= 0) tabs.add(song, spec) else tabs.add(spec)
@@ -106,7 +164,31 @@ class TabHost(private val core: DreamCore) : Navigator {
 
     // ───────────────────────── Navigator ─────────────────────────
 
-    override fun openQueue(playlistName: String) = open(TabSpec.Queue(playlistName))
+    override fun openPlaylist(playlistName: String) = open(TabSpec.Playlist(playlistName))
+
+    /**
+     * playback was started from a playlist: go to the queue. A playlist tab
+     * that would close on leaving turns into the PLAYING tab in place;
+     * otherwise the pager slides over to it.
+     */
+    override fun openPlaying() {
+        val cur = current
+        when {
+            TabSpec.Playing in tabs -> currentId = TabSpec.Playing.id
+            cur is TabSpec.Playlist && core.settings.autoClosePlaylist.value -> {
+                val i = tabs.indexOf(cur)
+                origin[TabSpec.Playing.id] = origin.remove(PLAYLIST) ?: TabSpec.Playlists.id
+                tabs[i] = TabSpec.Playing
+                currentId = TabSpec.Playing.id
+            }
+            else -> open(TabSpec.Playing)
+        }
+    }
+
+    override fun playlistRenamed(from: String, to: String) {
+        val i = tabs.indexOfFirst { it is TabSpec.Playlist && it.name == from }
+        if (i >= 0) tabs[i] = TabSpec.Playlist(to)
+    }
 
     override fun openSong(track: Track) = open(TabSpec.Song(track))
 
@@ -123,7 +205,7 @@ class TabHost(private val core: DreamCore) : Navigator {
             currentId = "edit:$name"
             return
         }
-        open(TabSpec.EditPlaylist(name, PlaylistEditorState(name, pl.tracks)))
+        open(TabSpec.EditPlaylist(name, PlaylistEditorState(name, pl.tracks, pl.coverArt)))
     }
 
     override fun openEditMeta(track: Track) {
@@ -162,4 +244,13 @@ class TabHost(private val core: DreamCore) : Navigator {
     }
 
     override fun closeCurrent() = close(currentIndex)
+
+    private companion object {
+        const val PLAYLIST = "playlist"
+
+        /** the longest playlist name shown in the PLAYING tab title. */
+        const val TITLE_MAX = 16
+
+        fun short(name: String) = if (name.length <= TITLE_MAX) name else name.take(TITLE_MAX - 1).trimEnd() + "…"
+    }
 }

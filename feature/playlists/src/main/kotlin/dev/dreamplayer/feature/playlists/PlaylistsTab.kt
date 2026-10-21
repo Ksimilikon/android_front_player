@@ -68,14 +68,15 @@ fun PlaylistsTab(core: DreamCore, nav: Navigator) {
                 }
             },
             menu = listOf(
-                MenuAction("Открыть", Icons.AutoMirrored.Filled.QueueMusic) { nav.openQueue(p.name) },
+                MenuAction("Открыть", Icons.AutoMirrored.Filled.QueueMusic) { nav.openPlaylist(p.name) },
                 MenuAction("Воспроизвести", Icons.Filled.PlayArrow, enabled = p.tracks.isNotEmpty()) {
                     core.player.playPlaylist(p.name, 0)
+                    nav.openPlaying()
                 },
                 MenuAction("Изменить", Icons.Filled.Edit, enabled = !p.isPool) { nav.openEditPlaylist(p.name) },
                 MenuAction("Удалить", Icons.Filled.Delete, danger = true, enabled = !p.isPool) { deleting = p },
             ),
-            onClick = { nav.openQueue(p.name) },
+            onClick = { nav.openPlaylist(p.name) },
         )
     }
 
