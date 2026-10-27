@@ -39,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.dreamplayer.common.formatDuration
 import dev.dreamplayer.data.DreamCore
+import dev.dreamplayer.data.MetaResult
+import dev.dreamplayer.model.MetaEdit
 import dev.dreamplayer.ui.CoverImage
 import dev.dreamplayer.ui.form.FormSwitch
 import dev.dreamplayer.ui.form.FormTextField
@@ -64,15 +66,19 @@ fun MetaEditorTab(core: DreamCore, nav: Navigator, state: MetaEditorState) {
             }
         }
     }
-    // the picture being embedded while the system asks to allow writing the song file.
-    var embedding by remember { mutableStateOf<String?>(null) }
+    // what waits for the system to allow writing the song file: tags not
+    // written yet (null — none) and / or the picture to embed.
+    var pending by remember { mutableStateOf<Pair<MetaEdit?, String?>?>(null) }
     val writeConsent = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
-        val picture = embedding
-        embedding = null
-        if (picture != null && res.resultCode == Activity.RESULT_OK) {
-            core.launch { core.files.embedCover(t, picture, asked = true) }
+        val (tags, picture) = pending ?: return@rememberLauncherForActivityResult
+        pending = null
+        if (res.resultCode == Activity.RESULT_OK) {
+            core.launch {
+                val ok = tags == null || core.library.applyMeta(tags.tagsOnly()) == MetaResult.OK
+                if (ok && picture != null) core.files.embedCover(t, picture, asked = true)
+            }
         } else {
-            core.status.info("обложка не встроена: запись файла не разрешена")
+            core.status.info(if (tags != null) "теги не записаны: запись файла не разрешена" else "обложка не встроена: запись файла не разрешена")
         }
         nav.closeCurrent()
     }
@@ -136,12 +142,28 @@ fun MetaEditorTab(core: DreamCore, nav: Navigator, state: MetaEditorState) {
                         return@Button
                     }
                     val picture = state.cover?.takeIf { state.embedCover }
+                    val edit = state.toEdit()
                     core.launch {
-                        if (!core.library.applyMeta(state.toEdit())) return@launch
-                        val consent = picture?.let { core.files.embedCover(t, it) }
+                        // the tags and the embedded picture go into the same file: one consent covers both.
+                        val wait: Pair<MetaEdit?, String?>
+                        val consent = when (core.library.applyMeta(edit, canAsk = true)) {
+                            MetaResult.FAILED -> return@launch
+                            MetaResult.WRITE_DENIED -> {
+                                wait = edit to picture
+                                core.files.writeRequest(t) ?: run {
+                                    // nothing to ask: the retry reports the failure.
+                                    core.library.applyMeta(edit.tagsOnly())
+                                    return@launch
+                                }
+                            }
+                            MetaResult.OK -> {
+                                wait = null to picture
+                                picture?.let { core.files.embedCover(t, it) }
+                            }
+                        }
                         withContext(Dispatchers.Main) {
                             if (consent != null) {
-                                embedding = picture
+                                pending = wait
                                 writeConsent.launch(IntentSenderRequest.Builder(consent).build())
                             } else {
                                 nav.closeCurrent()

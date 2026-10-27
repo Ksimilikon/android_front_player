@@ -15,7 +15,7 @@ fun describeCdc(code: Int): String = when (code) {
     CdcStatus.DATA_TOO_LONG -> "слишком большой файл"
     CdcStatus.DUPLICATE_SECTION -> "повторяющаяся секция пакета"
     CdcStatus.COUNT_MISMATCH -> "число записей не совпадает"
-    CdcStatus.OUTDATED -> "пакет старше локальных плейлистов — включите «принудительно»"
+    CdcStatus.OUTDATED -> "пакет старше локальных плейлистов"
     CdcStatus.NULL_POINTER -> "внутренняя ошибка (null)"
     CdcStatus.NO_DATABASE -> "база данных недоступна"
     CdcStatus.TRACK_NOT_FOUND -> "трек не найден"

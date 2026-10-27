@@ -19,8 +19,8 @@ import java.io.File
  * library. Android 11+ lets an app delete other apps' media only after the
  * user agrees in a system dialog, so it is two steps: [requestDelete] gives
  * the dialog (null — not needed), [finishDelete] deletes what is allowed and
- * cleans the library. Embedding a cover ([embedCover]) asks to write the
- * same way.
+ * cleans the library. Writing into the song file (tags, [embedCover]) asks
+ * the same way: [writeRequest].
  */
 class TrackFiles internal constructor(
     private val context: Context,
@@ -87,10 +87,7 @@ class TrackFiles internal constructor(
             return null
         }
         val code = rt.call { idxEmbedTrackCover(id, picture) }
-        if (code == IdxStatus.WRITE_FAILED && !asked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val uri = withContext(Dispatchers.IO) { track.path?.let(::mediaUri) }
-            if (uri != null) return MediaStore.createWriteRequest(resolver, listOf(uri)).intentSender
-        }
+        if (code == IdxStatus.WRITE_FAILED && !asked) writeRequest(track)?.let { return it }
         when (code) {
             IdxStatus.OK -> {
                 rt.call { idxSetTrackFileChanged(id) }
@@ -102,6 +99,16 @@ class TrackFiles internal constructor(
             else -> status.error("не удалось встроить обложку: ${describeIdx(code)}")
         }
         return null
+    }
+
+    /**
+     * the system dialog asking to allow writing the file of [track] (another
+     * app's file, Android 11+); null — there is nothing to ask.
+     */
+    suspend fun writeRequest(track: Track): IntentSender? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        val uri = withContext(Dispatchers.IO) { track.path?.let(::mediaUri) } ?: return null
+        return MediaStore.createWriteRequest(resolver, listOf(uri)).intentSender
     }
 
     private fun exists(path: String) = File(path).exists()

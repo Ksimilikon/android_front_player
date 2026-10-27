@@ -117,14 +117,30 @@ object Native {
      */
     @JvmStatic external fun idxIndexDir(dir: String?): Int
 
-    /** null field — leave as is; artists are rewritten entirely. */
-    @JvmStatic external fun idxSetTrackMeta(id: Long, title: String?, artists: Array<String>?): Int
+    /**
+     * edits the song tags: writes them into the audio file, then into the db
+     * (the file is dated as changed — no [idxSetTrackFileChanged] needed).
+     * Every null argument — leave the field as is (all null — nothing is
+     * touched). [artists] / [genres] are rewritten entirely, an empty array
+     * clears them; an empty [album] clears it; an empty [title] —
+     * `INVALID_ARGUMENT`. `NOT_FOUND` — no such track / no file,
+     * `WRITE_FAILED` — the file couldn't be written (the db is not changed).
+     */
+    @JvmStatic external fun idxSetTrackMeta(
+        id: Long,
+        title: String?,
+        artists: Array<String>?,
+        album: String?,
+        genres: Array<String>?,
+    ): Int
 
-    /** genres are rewritten entirely; null / empty — cleared. */
+    /** genres only, as in [idxSetTrackMeta]; null / empty — cleared. */
     @JvmStatic external fun idxSetTrackGenres(id: Long, genres: Array<String>?): Int
 
-    // null clears the field.
+    /** album only, as in [idxSetTrackMeta]; null / empty — cleared. */
     @JvmStatic external fun idxSetTrackAlbum(id: Long, album: String?): Int
+
+    // null clears the field.
     @JvmStatic external fun idxSetTrackCover(id: Long, coverPath: String?): Int
     @JvmStatic external fun idxSetTrackColor(id: Long, color: String?): Int
     @JvmStatic external fun idxSetTrackLabel(id: Long, label: String?): Int
@@ -228,8 +244,10 @@ object Native {
     ): DecodeResult
 
     /**
-     * import step 1: reads the packet from [fd], checks it and the dates.
-     * The library doesn't change. On `CdcStatus.OK` the session must end with
+     * import step 1: reads the packet from [fd] and checks it. The library
+     * doesn't change. Playlists merge with the local ones entry by entry;
+     * [force] — a playlist deleted here after the packet one changed comes
+     * back too. On `CdcStatus.OK` the session must end with
      * [cdcImportCommit] or [cdcImportCancel].
      */
     @JvmStatic external fun cdcImportPrepare(fd: Int, force: Boolean): ImportPrepared
@@ -309,7 +327,7 @@ object Native {
         withCovers: Boolean,
     ): CoreResult<Long>
 
-    /** a one-way receive; [force] — accept playlists older than the local ones. */
+    /** a one-way receive; [force] — bring back playlists deleted here later too. */
     @JvmStatic external fun syncNewReceive(con: Long, host: Boolean, force: Boolean): CoreResult<Long>
 
     /** frees the session (0 is ignored); cancel an unfinished one first. */

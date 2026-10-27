@@ -109,13 +109,14 @@ fun describeWire(code: Int): String = when (code) {
     WireStatus.UNEXPECTED -> "неожиданный пакет"
     WireStatus.DECRYPT_FAILED -> "не удалось расшифровать (устройство не сопряжено с этим?)"
     WireStatus.PAIR_FAILED -> "сопряжение не удалось (ключ устройства изменился?)"
-    WireStatus.REJECTED -> "отклонено: локальные плейлисты новее"
+    WireStatus.REJECTED -> "отклонено"
     WireStatus.WRITE_FAILED -> "не удалось сохранить данные"
     WireStatus.BUSY -> "устройство занято"
     WireStatus.CANCELLED -> "отменено"
     WireStatus.INTERNAL -> "внутренняя ошибка"
     WireStatus.MODE_MISMATCH ->
         "режимы не совпадают: для синхронизации на обоих устройствах «синхронизация», для передачи — на одном «отправка», на другом «приём»"
+    WireStatus.VERSION_MISMATCH -> "на устройствах разные версии приложения — обновите оба"
     else -> "код $code"
 }
 

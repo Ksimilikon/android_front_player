@@ -188,27 +188,38 @@ class LibraryRepository internal constructor(
         return ok
     }
 
-    /** applies metadata edits (as `apply_meta` in the TUI) and re-reads the library. */
-    suspend fun applyMeta(e: MetaEdit): Boolean {
+    /**
+     * applies metadata edits (as `apply_meta` in the TUI) and re-reads the
+     * library. The tags are written into the song file first: when that fails
+     * and [canAsk], the rest is still applied and [MetaResult.WRITE_DENIED]
+     * comes back silently — ask to write the file ([TrackFiles.writeRequest])
+     * and call again with [MetaEdit.tagsOnly].
+     */
+    suspend fun applyMeta(e: MetaEdit, canAsk: Boolean = false): MetaResult {
         // every field is tried; the first failure is the one reported.
+        var tags = IdxStatus.OK
         val code = rt.call {
             val codes = buildList {
-                if (e.title != null || e.artists != null) {
-                    add(idxSetTrackMeta(e.id, e.title, e.artists?.toTypedArray()))
+                if (e.hasTags) {
+                    tags = idxSetTrackMeta(e.id, e.title, e.artists?.toTypedArray(), e.album, e.genres?.toTypedArray())
+                    add(tags)
                 }
-                e.album?.let { add(idxSetTrackAlbum(e.id, it.ifEmpty { null })) }
-                e.genres?.let { add(idxSetTrackGenres(e.id, it.toTypedArray())) }
                 if (e.clearCover) add(idxSetTrackCover(e.id, null)) else e.coverPath?.let { add(idxSetTrackCover(e.id, it)) }
                 if (e.setColor) add(idxSetTrackColor(e.id, e.color?.id))
                 e.label?.let { add(idxSetTrackLabel(e.id, it.ifEmpty { null })) }
             }
             codes.firstOrNull { it != IdxStatus.OK } ?: IdxStatus.OK
         }
-        val ok = code == IdxStatus.OK
         if (e.coverPath != null || e.clearCover) CoverLoader.invalidate()
         reload()
-        if (ok) status.ok("метаданные сохранены") else status.error("часть метаданных не сохранилась: ${describeIdx(code)}")
-        return ok
+        return when {
+            tags == IdxStatus.WRITE_FAILED && canAsk -> MetaResult.WRITE_DENIED
+            code == IdxStatus.OK -> MetaResult.OK.also { status.ok("метаданные сохранены") }
+            tags == IdxStatus.WRITE_FAILED ->
+                MetaResult.FAILED.also { status.error("теги не записаны: файл песни недоступен для записи или формат не поддерживается") }
+            tags == IdxStatus.INVALID_ARGUMENT -> MetaResult.FAILED.also { status.error("название не может быть пустым") }
+            else -> MetaResult.FAILED.also { status.error("часть метаданных не сохранилась: ${describeIdx(code)}") }
+        }
     }
 
     /**
@@ -279,3 +290,12 @@ class LibraryRepository internal constructor(
 
 /** which songs in no playlist the collector shows. */
 enum class OrphanView { Unmarked, Kept, All }
+
+/** outcome of [LibraryRepository.applyMeta]. */
+enum class MetaResult {
+    OK,
+    /** reported already. */
+    FAILED,
+    /** the song file couldn't be written (another app's file?): the tags are not saved, the rest is. */
+    WRITE_DENIED,
+}

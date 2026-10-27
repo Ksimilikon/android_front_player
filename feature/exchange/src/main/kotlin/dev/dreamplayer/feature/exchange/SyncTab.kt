@@ -131,7 +131,7 @@ fun SyncTab(core: DreamCore, state: SyncTabState) {
             SyncModeChoice.Sync -> Hint("обмен библиотеками в обе стороны; на другом устройстве — тоже «синхронизация»")
             SyncModeChoice.Receive -> {
                 Hint("принять то, что отправит другое устройство (режим «отправка»)")
-                FormSwitch("Принудительно", state.force, { state.force = it }, description = "принять плейлисты, даже если они старше локальных")
+                FormSwitch("Принудительно", state.force, { state.force = it }, description = "вернуть и плейлисты, удалённые здесь после их изменения на другом устройстве")
             }
             SyncModeChoice.Send -> Hint(
                 state.send?.let { "отправить: ${describe(it)}; на другом устройстве — «приём»" }

@@ -10,13 +10,17 @@ data class StatusMessage(
     val stamp: Long = System.nanoTime(),
 )
 
-/** a set of metadata edits (null — leave the field as is). */
+/**
+ * a set of metadata edits (null — leave the field as is). The tags (title,
+ * artists, album, genres) are written into the song file too.
+ */
 data class MetaEdit(
     val id: Long,
     val title: String? = null,
     val artists: List<String>? = null,
     /** "" clears. */
     val album: String? = null,
+    /** empty clears. */
     val genres: List<String>? = null,
     /** path of the new cover file. */
     val coverPath: String? = null,
@@ -27,4 +31,10 @@ data class MetaEdit(
     val color: TrackColor? = null,
     /** "" clears. */
     val label: String? = null,
-)
+) {
+    /** some tag is edited: the song file gets written. */
+    val hasTags: Boolean get() = title != null || artists != null || album != null || genres != null
+
+    /** only the tags of this edit (to retry writing the file). */
+    fun tagsOnly(): MetaEdit = MetaEdit(id, title, artists, album, genres)
+}

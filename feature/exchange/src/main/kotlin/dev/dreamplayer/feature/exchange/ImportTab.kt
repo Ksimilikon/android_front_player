@@ -63,7 +63,7 @@ fun ImportTab(core: DreamCore, nav: Navigator, state: ImportState) {
             "Принудительно",
             state.force,
             { state.force = it },
-            description = "применить пакет, даже если он старше локальных плейлистов",
+            description = "вернуть и плейлисты, удалённые здесь после их изменения в пакете",
         )
         Button(
             onClick = {

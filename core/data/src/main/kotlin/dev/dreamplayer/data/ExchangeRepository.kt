@@ -84,7 +84,7 @@ class ExchangeRepository internal constructor(
      */
     suspend fun import(packet: Uri, force: Boolean, subdir: String, tabLog: (StatusMessage) -> Unit): Boolean {
         val log = tabLog.teed()
-        // step 1: the core reads the packet and checks the dates.
+        // step 1: the core reads and checks the packet.
         val prepared = runCatching {
             resolver.openFileDescriptor(packet, "r")!!.use { pfd ->
                 log(info("чтение пакета (${humanSize(pfd.statSize)})${if (force) ", принудительно" else ""}…"))
@@ -94,10 +94,9 @@ class ExchangeRepository internal constructor(
             log(StatusMessage("не удалось открыть пакет: ${it.message}", StatusKind.Error))
             return false
         }
-        when (prepared.status) {
-            CdcStatus.OK -> {}
-            CdcStatus.OUTDATED -> return false.also { log(StatusMessage(describeCdc(prepared.status), StatusKind.Warn)) }
-            else -> return false.also { log(StatusMessage("импорт отклонён: ${describeCdc(prepared.status)}", StatusKind.Error)) }
+        if (prepared.status != CdcStatus.OK) {
+            log(StatusMessage("импорт отклонён: ${describeCdc(prepared.status)}", StatusKind.Error))
+            return false
         }
         val songs = prepared.files.count { it.kind == ImportFileKind.SONG }
         val covers = prepared.files.size - songs
@@ -125,8 +124,7 @@ class ExchangeRepository internal constructor(
         val code = rt.call { cdcImportCommit(prepared.session, written.map { it.path }.toTypedArray<String?>()) }
         if (code != CdcStatus.OK) {
             rollback(written)
-            val kind = if (code == CdcStatus.OUTDATED) StatusKind.Warn else StatusKind.Error
-            log(StatusMessage("импорт не удался: ${describeCdc(code)}", kind))
+            log(StatusMessage("импорт не удался: ${describeCdc(code)}", StatusKind.Error))
             return false
         }
         library.reload()

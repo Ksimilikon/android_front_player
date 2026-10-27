@@ -100,8 +100,10 @@ internal class CoreCalls(private val log: CoreLog) {
     fun idxGetTrack(id: Long, path: String?): CoreResult<TrackMeta> =
         result(Sys.Idx, "idxGetTrack($id, ${q(path)})", show = { q(it.title) }) { Native.idxGetTrack(id, path) }
     fun idxIndexDir(dir: String?) = code(Sys.Idx, "idxIndexDir(${q(dir)})") { Native.idxIndexDir(dir) }
-    fun idxSetTrackMeta(id: Long, title: String?, artists: Array<String>?) =
-        code(Sys.Idx, "idxSetTrackMeta($id, ${q(title)}, ${arr(artists)})") { Native.idxSetTrackMeta(id, title, artists) }
+    fun idxSetTrackMeta(id: Long, title: String?, artists: Array<String>?, album: String?, genres: Array<String>?) =
+        code(Sys.Idx, "idxSetTrackMeta($id, ${q(title)}, ${arr(artists)}, ${q(album)}, ${arr(genres)})") {
+            Native.idxSetTrackMeta(id, title, artists, album, genres)
+        }
     fun idxSetTrackGenres(id: Long, genres: Array<String>?) =
         code(Sys.Idx, "idxSetTrackGenres($id, ${arr(genres)})") { Native.idxSetTrackGenres(id, genres) }
     fun idxSetTrackAlbum(id: Long, album: String?) =
@@ -250,7 +252,7 @@ internal class CoreCalls(private val log: CoreLog) {
         Init(::describeInit, InitStatus.PANIC, setOf(InitStatus.ALREADY_INITIALIZED)),
         Engine(::describeEngine, EngineStatus.PANIC, setOf(EngineStatus.CONFIG_WRITE_FAILED)),
         Idx(::describeIdx, IdxStatus.PANIC, emptySet()),
-        Cdc(::describeCdc, CdcStatus.PANIC, setOf(CdcStatus.OUTDATED)),
+        Cdc(::describeCdc, CdcStatus.PANIC, emptySet()),
         Con(::describeCon, ConStatus.PANIC, emptySet()),
         Sync(::describeSync, SyncStatus.PANIC, emptySet()),
     }

@@ -40,22 +40,28 @@ class MetaEditorState(val track: Track) {
         embedCover = false
     }
 
+    private val initial = listOf(title, artists, album, genres)
+
     /**
-     * the edit set (as `to_edit` in the TUI): an empty title / artists means
-     * "don't change"; album, genres and label are always applied (empty clears).
+     * the edit set (as `to_edit` in the TUI): an unchanged tag is not sent
+     * (so the song file isn't rewritten for nothing); an empty title /
+     * artists means "don't change", an emptied album / genres clears them.
+     * The label is always applied (empty clears).
      */
     fun toEdit(): MetaEdit = MetaEdit(
         id = track.id ?: -1,
-        title = title.trim().ifEmpty { null },
-        artists = splitList(artists).ifEmpty { null },
-        album = album.trim(),
-        genres = splitList(genres),
+        title = changed(0, title)?.trim()?.ifEmpty { null },
+        artists = changed(1, artists)?.let(::splitList)?.ifEmpty { null },
+        album = changed(2, album)?.trim(),
+        genres = changed(3, genres)?.let(::splitList),
         coverPath = newCover,
         clearCover = removeCover && track.coverArt != null,
         setColor = color != track.color,
         color = color,
         label = label.trim(),
     )
+
+    private fun changed(i: Int, text: String): String? = text.takeIf { it != initial[i] }
 
     companion object {
         val COLORS: List<TrackColor?> = listOf(null) + TrackColor.entries
