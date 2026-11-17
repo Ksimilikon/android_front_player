@@ -32,8 +32,8 @@ tasks.named("preBuild") { dependsOn(copyLicenses) }
 android {
     defaultConfig {
         applicationId = "dev.dreamplayer"
-        versionCode = 2
-        versionName = "0.1.5"
+        versionCode = 3
+        versionName = "0.2"
         buildConfigField("String", "CORE_VERSION", "\"$coreVersion\"")
         // only the ABIs the core .so is built for (dream.abis): on any other
         // the app would install and crash on System.loadLibrary.
