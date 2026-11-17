@@ -293,14 +293,14 @@ class PlayerController internal constructor(
         } else {
             native.enginePause()
             syncTransport()
-            status.error("не удалось перевести звук на $name. Выберите устройство в настройках")
+            status.error("не удалось перевести звук на $name — нажмите «воспроизвести» ещё раз")
         }
     }
 
     /** play after a route change: on a fresh stream if the core can open one. */
     private fun resumeOnFreshStream() {
         if (!reconnect(resume = true)) {
-            status.error("не удалось открыть устройство вывода. Выберите его в настройках")
+            status.error("не удалось открыть устройство вывода — переподключите наушники или нажмите «воспроизвести» ещё раз")
         }
     }
 
@@ -342,7 +342,7 @@ class PlayerController internal constructor(
             native.enginePause()
             needsReconnect = true
             syncTransport()
-            status.error("звук пропал: сменилось устройство вывода. Выберите устройство в настройках или перезапустите приложение")
+            status.error("звук пропал: сменилось устройство вывода — переподключите наушники или перезапустите приложение")
         }
     }
 

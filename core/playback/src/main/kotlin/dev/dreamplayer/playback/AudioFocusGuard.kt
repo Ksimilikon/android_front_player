@@ -7,15 +7,23 @@ import android.media.AudioManager
 import dev.dreamplayer.data.PlayerController
 
 /**
- * the core writes to AAudio directly, so audio focus is handled here: the
- * focus is requested when playback starts, a loss pauses, a transient loss
- * resumes on regain. (Unplugged headphones: `AudioRouteWatcher` in :core:data.)
+ * the core writes to AAudio directly, so audio focus is handled here. The
+ * focus is held only while music plays: taken when playback starts, given
+ * back when the user pauses (a paused player gets no focus news at all).
+ * A loss pauses; a transient loss (a call, a navigation prompt) pauses and
+ * resumes on regain — only if the music was playing when it came.
+ * (Unplugged headphones: `AudioRouteWatcher` in :core:data.)
  */
 internal class AudioFocusGuard(
     context: Context,
     private val controller: PlayerController,
 ) {
     private val audio = context.getSystemService(AudioManager::class.java)
+
+    /** the music is playing (the last state seen). */
+    private var playing = false
+
+    /** it was paused by a transient loss: play again on regain. */
     private var resumeOnGain = false
 
     private val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
@@ -30,13 +38,22 @@ internal class AudioFocusGuard(
 
     /** playback state changed: hold the focus while playing. */
     fun onPlaying(playing: Boolean) {
-        if (playing) {
-            resumeOnGain = false
-            audio.requestAudioFocus(request)
+        this.playing = playing
+        when {
+            playing -> {
+                // the user started it: whatever was waiting for a regain is moot.
+                resumeOnGain = false
+                audio.requestAudioFocus(request)
+            }
+            // paused by the transient loss itself: keep waiting for the regain.
+            resumeOnGain -> {}
+            // paused by the user (or the queue ended): nothing to come back to.
+            else -> audio.abandonAudioFocusRequest(request)
         }
     }
 
     fun release() {
+        resumeOnGain = false
         audio.abandonAudioFocusRequest(request)
     }
 
@@ -44,9 +61,10 @@ internal class AudioFocusGuard(
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 resumeOnGain = false
-                controller.pause()
+                if (playing) controller.pause()
+                audio.abandonAudioFocusRequest(request)
             }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> if (playing) {
                 resumeOnGain = true
                 controller.pause()
             }
