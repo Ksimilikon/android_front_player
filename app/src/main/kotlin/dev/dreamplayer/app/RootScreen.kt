@@ -154,7 +154,7 @@ fun RootScreen(core: DreamCore, host: TabHost) {
                     is TabSpec.EditMeta -> MetaEditorTab(core, host, tab.state)
                     is TabSpec.Import -> ImportTab(core, host, tab.state)
                     is TabSpec.Export -> ExportTab(core, host, tab.state)
-                    is TabSpec.Sync -> SyncTab(core, tab.state)
+                    is TabSpec.Sync -> SyncTab(core, tab.state, host)
                     TabSpec.Orphans -> OrphansTab(core, host)
                     TabSpec.Logs -> LogsTab(core)
                     null -> {}

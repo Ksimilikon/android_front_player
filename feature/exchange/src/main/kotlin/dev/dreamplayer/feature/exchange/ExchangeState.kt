@@ -38,7 +38,7 @@ class ImportState {
 }
 
 /** what the DEVICES tab runs. */
-enum class SyncModeChoice(val label: String) { Sync("синхронизация"), Receive("приём"), Send("отправка") }
+enum class SyncModeChoice(val title: String) { Sync("Синхронизация"), Receive("Приём"), Send("Отправка") }
 
 /** how the DEVICES tab reaches the other device. */
 enum class LinkChoice(val label: String, val hint: String) {

@@ -5,6 +5,22 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
+import dev.dreamplayer.data.Moved
+import dev.dreamplayer.data.MovedKind
+import dev.dreamplayer.model.StatusMessage
+import dev.dreamplayer.ui.form.FormDropdown
+import dev.dreamplayer.ui.nav.Navigator
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,7 +39,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,7 +68,6 @@ import dev.dreamplayer.data.SyncTarget
 import dev.dreamplayer.data.SyncView
 import dev.dreamplayer.ui.ConfirmDialog
 import dev.dreamplayer.ui.MessageLog
-import dev.dreamplayer.ui.form.FormChoice
 import dev.dreamplayer.ui.form.FormSwitch
 import dev.dreamplayer.ui.form.FormTextField
 import dev.dreamplayer.ui.form.InfoLine
@@ -70,7 +84,7 @@ import kotlinx.coroutines.launch
  * mode: sync — sync, send — receive. Below — the paired devices.
  */
 @Composable
-fun SyncTab(core: DreamCore, state: SyncTabState) {
+fun SyncTab(core: DreamCore, state: SyncTabState, nav: Navigator) {
     val view by core.sync.view.collectAsStateWithLifecycle()
     val log by core.sync.log.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -116,22 +130,20 @@ fun SyncTab(core: DreamCore, state: SyncTabState) {
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 72.dp)) {
         InfoLine("Это устройство", own ?: "ключи недоступны")
-        // while running, what to tell the other device (network, password,
-        // address) and the log come first.
-        if (view.running) {
-            SessionCard(view)
-            OutlinedButton(onClick = core.sync::cancel, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text("Отменить") }
-            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-            MessageLog(log)
-        }
 
         SectionTitle("Режим")
-        FormChoice(SyncModeChoice.entries, state.mode, { it.label }, { state.mode = it })
+        FormDropdown("Режим", SyncModeChoice.entries, state.mode, { it.title }, { state.mode = it }, enabled = !view.running)
         when (state.mode) {
             SyncModeChoice.Sync -> Hint("обмен библиотеками в обе стороны; на другом устройстве — тоже «синхронизация»")
             SyncModeChoice.Receive -> {
                 Hint("принять то, что отправит другое устройство (режим «отправка»)")
-                FormSwitch("Принудительно", state.force, { state.force = it }, description = "вернуть и плейлисты, удалённые здесь после их изменения на другом устройстве")
+                FormSwitch(
+                    "Принудительно",
+                    state.force,
+                    { state.force = it },
+                    description = "вернуть и плейлисты, удалённые здесь после их изменения на другом устройстве",
+                    enabled = !view.running,
+                )
             }
             SyncModeChoice.Send -> Hint(
                 state.send?.let { "отправить: ${describe(it)}; на другом устройстве — «приём»" }
@@ -144,32 +156,42 @@ fun SyncTab(core: DreamCore, state: SyncTabState) {
                 state.subdir,
                 { v -> state.subdir = v.replace("..", "").trim('/') },
                 supporting = "куда сохраняются полученные песни",
+                enabled = !view.running,
             )
         }
 
         SectionTitle("Подключение")
-        for (c in LinkChoice.entries) {
-            ListRow(
-                title = c.label,
-                subtitle = c.hint,
-                selected = c == state.link,
-                leading = { RadioButton(selected = c == state.link, onClick = null) },
-                onClick = { state.link = c },
-            )
-        }
+        FormDropdown(
+            "Подключение",
+            LinkChoice.entries,
+            state.link,
+            { it.label },
+            { state.link = it },
+            hint = { it.hint },
+            enabled = !view.running,
+        )
+        Hint(state.link.hint)
         when (state.link) {
             LinkChoice.Listen, LinkChoice.HotspotHost, LinkChoice.Usb -> {}
-            LinkChoice.Connect -> FormTextField("Адрес", state.address, { state.address = it.trim() }, placeholder = "192.168.1.5 или 192.168.1.5:47800")
+            LinkChoice.Connect -> FormTextField(
+                "Адрес",
+                state.address,
+                { state.address = it.trim() },
+                placeholder = "192.168.1.5 или 192.168.1.5:47800",
+                enabled = !view.running,
+            )
             LinkChoice.HotspotJoin -> {
-                FormTextField("Сеть (SSID)", state.ssid, { state.ssid = it })
-                FormTextField("Пароль", state.password, { state.password = it })
+                FormTextField("Сеть (SSID)", state.ssid, { state.ssid = it }, enabled = !view.running)
+                FormTextField("Пароль", state.password, { state.password = it }, enabled = !view.running)
             }
         }
         if (state.link != LinkChoice.Connect && state.link != LinkChoice.Usb) {
-            FormTextField("Порт", state.port, { v -> state.port = v.filter(Char::isDigit).take(5) })
+            FormTextField("Порт", state.port, { v -> state.port = v.filter(Char::isDigit).take(5) }, enabled = !view.running)
         }
 
-        if (!view.running) {
+        if (view.running) {
+            OutlinedButton(onClick = core.sync::cancel, modifier = Modifier.fillMaxWidth().padding(16.dp)) { Text("Отменить") }
+        } else {
             Button(
                 onClick = {
                     val needed = hotspotPermissions().filter {
@@ -180,9 +202,9 @@ fun SyncTab(core: DreamCore, state: SyncTabState) {
                 },
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
             ) { Text(if (state.mode == SyncModeChoice.Sync) "Синхронизировать" else "Начать") }
-            SessionCard(view)
-            MessageLog(log)
         }
+        StatusCard(view)
+        TransferLines(view, log, open = { m -> openMoved(core, nav, m) })
 
         SectionTitle("Сопряжённые устройства")
         if (peers.isEmpty()) Hint("пока нет: устройство сопрягается при первом обмене")
@@ -245,10 +267,9 @@ private fun hotspotPermissions(): List<String> =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) listOf(Manifest.permission.NEARBY_WIFI_DEVICES)
     else listOf(Manifest.permission.ACCESS_FINE_LOCATION)
 
-/** the running (or last) session: what to tell the other device and how it goes. */
+/** the state of the session (always shown): what is happening, what to tell the other device. */
 @Composable
-private fun SessionCard(v: SyncView) {
-    if (!v.running && v.link == null) return
+private fun StatusCard(v: SyncView) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = MaterialTheme.shapes.medium,
@@ -257,18 +278,105 @@ private fun SessionCard(v: SyncView) {
         SelectionContainer {
             Column(Modifier.padding(vertical = 8.dp)) {
                 InfoLine("Состояние", v.stage)
+                if (v.running) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
                 v.hotspot?.let {
                     InfoLine("Сеть", it.ssid)
                     InfoLine("Пароль", it.password)
                 }
                 if (v.addresses.isNotEmpty()) InfoLine("Адрес", v.addresses.joinToString("\n") { a -> "$a :${v.port}" })
                 v.link?.let { InfoLine("Подключение", it.describe()) }
-                if (v.sent.songs + v.sent.playlists > 0) InfoLine("Отправлено", "песен ${v.sent.songs}, плейлистов ${v.sent.playlists}")
-                if (v.received.songs + v.received.playlists > 0) {
-                    InfoLine("Получено", "песен ${v.received.songs}, плейлистов ${v.received.playlists}")
-                }
             }
         }
+    }
+}
+
+/**
+ * one line per counter (sent / received songs and playlists) and the log;
+ * a line unfolds into what moved and when. The entries lead to their tabs
+ * once the session is over (until then the library is still changing).
+ */
+@Composable
+private fun TransferLines(v: SyncView, log: List<StatusMessage>, open: (Moved) -> Boolean) {
+    val unfolded = remember { mutableStateMapOf<String, Boolean>() }
+    val lines = listOf(
+        Triple("Отправлено песен", v.sent.songs, v.moved.sentSongs),
+        Triple("Отправлено плейлистов", v.sent.playlists, v.moved.sentPlaylists),
+        Triple("Получено песен", v.received.songs, v.moved.receivedSongs),
+        Triple("Получено плейлистов", v.received.playlists, v.moved.receivedPlaylists),
+    )
+    for ((label, count, items) in lines) {
+        if (count == 0 && items.isEmpty()) continue
+        val isOpen = unfolded[label] == true
+        FoldLine(label, count.toString(), isOpen) { unfolded[label] = !isOpen }
+        if (isOpen) {
+            for (m in items) MovedRow(m, clickable = !v.running && m.kind.leadsSomewhere(), open = open)
+        }
+    }
+    if (log.isNotEmpty()) {
+        val isOpen = unfolded[LOG_LINE] == true
+        FoldLine("Журнал", log.size.toString(), isOpen) { unfolded[LOG_LINE] = !isOpen }
+        if (isOpen) MessageLog(log)
+    }
+}
+
+private const val LOG_LINE = "log"
+
+private fun MovedKind.leadsSomewhere() = this == MovedKind.Song || this == MovedKind.Playlist
+
+@Composable
+private fun FoldLine(label: String, value: String, open: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f), maxLines = 1)
+        Text(value, style = MaterialTheme.typography.bodyMedium, color = Dream.colors.playing, maxLines = 1)
+        Icon(
+            if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (open) "Свернуть" else "Развернуть",
+            tint = Dream.colors.muted,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+}
+
+@Composable
+private fun MovedRow(m: Moved, clickable: Boolean, open: (Moved) -> Boolean) {
+    val title = when (m.kind) {
+        MovedKind.DeletedPlaylist -> "удалён: ${m.title}"
+        else -> m.title
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = clickable) { open(m) }
+            .padding(start = 32.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text(clock(m.at), style = MaterialTheme.typography.bodySmall, color = Dream.colors.muted, fontFamily = FontFamily.Monospace)
+        Text(
+            title,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (clickable) MaterialTheme.colorScheme.onSurface else Dream.colors.muted,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+private fun clock(at: Long): String = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(at))
+
+/** the tab of a moved song / playlist; false — it is not in the library (any more). */
+private fun openMoved(core: DreamCore, nav: Navigator, m: Moved): Boolean {
+    val lib = core.library.library.value
+    return when (m.kind) {
+        MovedKind.Song -> lib.pool.tracks.firstOrNull { it.id == m.trackId }?.let { nav.openSong(it); true }
+        MovedKind.Playlist -> lib.playlists.firstOrNull { it.name == m.title }?.let { nav.openPlaylist(it.name); true }
+        else -> null
+    } ?: run {
+        core.status.warn("«${m.title}» больше нет в библиотеке")
+        false
     }
 }
 

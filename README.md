@@ -1,4 +1,5 @@
 # Dream Player — Android
+Данный проект полностью написан через ИИ-инструменты. 
 
 Android-фронтенд для ядра [rs_dream_player](../rs_dream_player) (Kotlin + Jetpack Compose).
 Функционально повторяет TUI ядра: плейлисты, очередь, песня, редакторы, импорт / экспорт.

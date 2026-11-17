@@ -10,6 +10,8 @@ import dev.dreamplayer.covers.CoverLoader
 import dev.dreamplayer.core.SyncEventKind
 import dev.dreamplayer.core.SyncStatus
 import dev.dreamplayer.core.SyncWhat
+import dev.dreamplayer.core.PlaylistInfo
+import dev.dreamplayer.core.TrackMeta
 import dev.dreamplayer.model.LogSource
 import dev.dreamplayer.model.StatusKind
 import dev.dreamplayer.model.StatusMessage
@@ -77,6 +79,31 @@ data class Portions(val songs: Int = 0, val playlists: Int = 0) {
     operator fun plus(e: SyncEvent) = Portions(songs + e.songs, playlists + e.playlists)
 }
 
+/** what an entry of [Transferred] is. */
+enum class MovedKind { Song, Playlist, DeletedPlaylist, Portion }
+
+/**
+ * one entry of what moved: a song / playlist by name, or (when the name is
+ * unknown — the core reports only the size of what was sent) a whole portion.
+ */
+data class Moved(
+    /** epoch ms. */
+    val at: Long,
+    val kind: MovedKind,
+    /** a name, or "12 песен" for a [MovedKind.Portion]. */
+    val title: String,
+    /** a [MovedKind.Song] in the local library. */
+    val trackId: Long? = null,
+)
+
+/** what the session moved, by line of the DEVICES tab. */
+data class Transferred(
+    val sentSongs: List<Moved> = emptyList(),
+    val sentPlaylists: List<Moved> = emptyList(),
+    val receivedSongs: List<Moved> = emptyList(),
+    val receivedPlaylists: List<Moved> = emptyList(),
+)
+
 /** the state of the sync worker for the interface. */
 data class SyncView(
     val running: Boolean = false,
@@ -90,6 +117,7 @@ data class SyncView(
     val link: LinkView? = null,
     val sent: Portions = Portions(),
     val received: Portions = Portions(),
+    val moved: Transferred = Transferred(),
 )
 
 /**
@@ -126,6 +154,15 @@ class SyncRepository internal constructor(
 
     private var job: Job? = null
 
+    /** the mode of the running session (names what is sent where it can). */
+    private var sending: SyncMode = SyncMode.Sync
+
+    /** the library as it was before the last received portion. */
+    private var before: Snapshot? = null
+
+    /** songs written by the last import (their paths). */
+    private var written: List<String> = emptyList()
+
     /** fingerprint of this device's key (the other user compares it), null — unavailable. */
     suspend fun ownFingerprint(): String? = rt.call { conGetPubKey() }.let { r -> r.value?.takeIf { r.isOk }?.let(::fingerprint) }
 
@@ -151,6 +188,7 @@ class SyncRepository internal constructor(
         if (job?.isActive == true) return false
         logState.value = emptyList()
         viewState.value = SyncView(running = true, stage = "подключение")
+        sending = mode
         job = scope.launch(Dispatchers.IO) {
             val complete = try {
                 runSession(target, mode, subdir)
@@ -224,6 +262,7 @@ class SyncRepository internal constructor(
 
     /** carries bytes between the link and the core session until it is over. */
     private suspend fun drive(link: Link, con: Long, mode: SyncMode, subdir: String): Boolean {
+        before = snapshot()
         val opened = open(con, link.host, mode)
         val session = opened.value?.takeIf { opened.isOk } ?: throw IOException("сессия не открылась: ${describeSync(opened.status)}")
         viewState.update { it.copy(stage = if (link.host) "обмен (это устройство — хост)" else "обмен") }
@@ -239,7 +278,7 @@ class SyncRepository internal constructor(
                     // each round of a two-way sync ends with its own `DONE`.
                     if (ev.kind == SyncEventKind.DONE && complete) continue
                     when (ev.kind) {
-                        SyncEventKind.IMPORT -> import(session, subdir)
+                        SyncEventKind.IMPORT -> written = import(session, subdir)
                         SyncEventKind.RECEIVED -> changed = true
                         SyncEventKind.DONE -> complete = true
                     }
@@ -277,7 +316,7 @@ class SyncRepository internal constructor(
      * covers (of playlists and, v0.12+, the songs' own cover files) into the
      * app's storage.
      */
-    private suspend fun import(session: Long, subdir: String) {
+    private suspend fun import(session: Long, subdir: String): List<String> {
         val files = native.syncImportFiles(session).or(emptyList())
         val paths = files.mapIndexed { i, f ->
             val fill = ExchangeRepository.Fill { fd -> native.syncImportWriteFile(session, i, fd) == SyncStatus.OK }
@@ -295,6 +334,7 @@ class SyncRepository internal constructor(
         if (code != SyncStatus.OK) say(StatusKind.Error, "импорт: ${describeSync(code)}")
         // a song written over its old file may carry another cover: forget what was read from these files.
         CoverLoader.invalidate(paths.filterNotNull())
+        return files.indices.mapNotNull { i -> paths[i]?.takeIf { files[i].kind == ImportFileKind.SONG } }
     }
 
     private suspend fun report(ev: SyncEvent) {
@@ -309,11 +349,28 @@ class SyncRepository internal constructor(
                 viewState.update { it.copy(stage = "сопряжено, сравнение библиотек") }
             }
             SyncEventKind.SENT -> {
-                viewState.update { it.copy(sent = it.sent + ev, stage = "передача") }
+                val (songs, playlists) = sentItems(ev)
+                viewState.update {
+                    it.copy(
+                        sent = it.sent + ev,
+                        stage = "передача",
+                        moved = it.moved.copy(sentSongs = it.moved.sentSongs + songs, sentPlaylists = it.moved.sentPlaylists + playlists),
+                    )
+                }
                 say(StatusKind.Info, portion("отправлено"))
             }
             SyncEventKind.RECEIVED -> {
-                viewState.update { it.copy(received = it.received + ev, stage = "передача") }
+                val (songs, playlists) = receivedItems(ev)
+                viewState.update {
+                    it.copy(
+                        received = it.received + ev,
+                        stage = "передача",
+                        moved = it.moved.copy(
+                            receivedSongs = it.moved.receivedSongs + songs,
+                            receivedPlaylists = it.moved.receivedPlaylists + playlists,
+                        ),
+                    )
+                }
                 say(StatusKind.Info, portion("получено"))
             }
             SyncEventKind.PEER_REJECTED -> say(StatusKind.Warn, "другая сторона не приняла часть данных: ${describeWire(ev.status)}")
@@ -322,6 +379,76 @@ class SyncRepository internal constructor(
                 say(StatusKind.Error, "ошибка (${if (ev.byPeer) "на другом устройстве" else "здесь"}): ${describeWire(ev.status)}")
         }
     }
+
+    // ───────────────────────── what moved ─────────────────────────
+
+    /** the library at a moment: tracks by id and playlists by name. */
+    private class Snapshot(val tracks: Map<Long, TrackMeta>, val playlists: Map<String, PlaylistInfo>)
+
+    private fun snapshot(): Snapshot? {
+        val tracks = native.idxGetTracks()
+        val playlists = native.idxGetPlaylists()
+        if (!tracks.isOk || !playlists.isOk) return null
+        return Snapshot(
+            tracks.or(emptyList()).mapNotNull { t -> t.id?.let { it to t } }.toMap(),
+            playlists.or(emptyList()).mapNotNull { p -> p.name?.let { it to p } }.toMap(),
+        )
+    }
+
+    /**
+     * the core tells only how much was sent: names only where this side
+     * knows them — the playlists of a send (the playlists portion is all of
+     * them), otherwise the portion as a whole.
+     */
+    private fun sentItems(ev: SyncEvent): Pair<List<Moved>, List<Moved>> {
+        val now = System.currentTimeMillis()
+        val songs = if (ev.songs > 0) listOf(Moved(now, MovedKind.Portion, songsLabel(ev.songs))) else emptyList()
+        val chosen = ((sending as? SyncMode.Send)?.what as? ExportWhat.Playlists)?.names
+        val playlists = when {
+            ev.playlists == 0 -> emptyList()
+            chosen != null && chosen.size == ev.playlists -> chosen.map { Moved(now, MovedKind.Playlist, it) }
+            else -> listOf(Moved(now, MovedKind.Portion, playlistsLabel(ev.playlists)))
+        }
+        return songs to playlists
+    }
+
+    /**
+     * what a received portion changed: the library is compared with the
+     * one before it (the core tells only how much); the songs whose files
+     * were written count even if their data didn't change.
+     */
+    private fun receivedItems(ev: SyncEvent): Pair<List<Moved>, List<Moved>> {
+        val now = System.currentTimeMillis()
+        val old = before
+        val new = snapshot() ?: return fallback(ev, now)
+        before = new
+        if (old == null) return fallback(ev, now)
+        val paths = written.toSet()
+        written = emptyList()
+        val songs = new.tracks.values
+            .filter { t ->
+                val was = old.tracks[t.id]
+                was == null || was.copy(listenCount = 0) != t.copy(listenCount = 0) || t.path in paths
+            }
+            .map { Moved(now, MovedKind.Song, it.title.ifBlank { it.path?.substringAfterLast('/') ?: "без названия" }, it.id) }
+        val changed = new.playlists.values
+            .filter { p ->
+                val was = old.playlists[p.name]
+                was == null || was.updatedAt != p.updatedAt || was.coverArt != p.coverArt || !was.trackIds.contentEquals(p.trackIds)
+            }
+            .map { Moved(now, MovedKind.Playlist, it.name.orEmpty()) }
+        val gone = (old.playlists.keys - new.playlists.keys).map { Moved(now, MovedKind.DeletedPlaylist, it) }
+        val (fs, fp) = fallback(ev, now)
+        return songs.ifEmpty { fs } to (changed + gone).ifEmpty { fp }
+    }
+
+    /** the portion as a whole when the library can't be compared. */
+    private fun fallback(ev: SyncEvent, now: Long): Pair<List<Moved>, List<Moved>> =
+        (if (ev.songs > 0) listOf(Moved(now, MovedKind.Portion, songsLabel(ev.songs))) else emptyList()) to
+            (if (ev.playlists > 0) listOf(Moved(now, MovedKind.Portion, playlistsLabel(ev.playlists))) else emptyList())
+
+    private fun songsLabel(n: Int) = "порция: песен $n"
+    private fun playlistsLabel(n: Int) = "порция: плейлистов $n"
 
     private fun refreshLink(con: Long) {
         val d: ConDevice? = native.conGetDevices().or(emptyList()).firstOrNull { it.id == con }
