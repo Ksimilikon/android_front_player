@@ -1,5 +1,7 @@
 package dev.dreamplayer.data
 
+import android.database.sqlite.SQLiteDatabase
+import dev.dreamplayer.common.TrackDates
 import dev.dreamplayer.core.IdxStatus
 import dev.dreamplayer.core.OrphanFilter
 import dev.dreamplayer.covers.CoverLoader
@@ -27,6 +29,8 @@ class LibraryRepository internal constructor(
     private val status: StatusBus,
     private val musicDir: File,
     private val covers: CoverStore,
+    /** where the core keeps its db (searched for [DB_FILE]). */
+    private val dbDirs: List<File>,
 ) {
     private val state = MutableStateFlow(Library.EMPTY)
     val library: StateFlow<Library> = state.asStateFlow()
@@ -335,6 +339,42 @@ class LibraryRepository internal constructor(
         return ok
     }
 
+    /**
+     * the dates the sortings need, by track id. [updated] — read from the
+     * core's db file directly (read-only: the core API has no track dates),
+     * the file's time for a song never changed; [onDevice] — the files'
+     * modification time. A date that can't be read
+     * is left out (the track sorts last).
+     */
+    suspend fun trackDates(tracks: List<Track>, updated: Boolean, onDevice: Boolean): Map<Long, TrackDates> =
+        withContext(Dispatchers.IO) {
+            val fromDb = if (updated) readUpdated() else emptyMap()
+            tracks.mapNotNull { t ->
+                val id = t.id ?: return@mapNotNull null
+                val mtime = t.path?.let { File(it).lastModified().takeIf { m -> m > 0 }?.div(1000) }
+                // the core dates a song only once it changes (an edit, a sync):
+                // one never changed counts from its file.
+                val changed = if (updated) fromDb[id] ?: mtime else null
+                id to TrackDates(updated = changed, onDevice = if (onDevice) mtime else null)
+            }.toMap()
+        }
+
+    /** `tracks.updated_at_file` (the song's own changes, synced) by id; empty — the db can't be read. */
+    private fun readUpdated(): Map<Long, Long> {
+        val file = dbDirs.firstNotNullOfOrNull { dir -> dir.walkTopDown().maxDepth(3).firstOrNull { it.name == DB_FILE } }
+            ?: return emptyMap()
+        return runCatching {
+            SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                db.rawQuery("SELECT id, COALESCE(updated_at_file, updated_at) FROM tracks", null).use { c ->
+                    buildMap { while (c.moveToNext()) if (!c.isNull(1)) put(c.getLong(0), c.getLong(1)) }
+                }
+            }
+        }.getOrElse {
+            status.warn("не удалось прочитать даты песен из библиотеки")
+            emptyMap()
+        }
+    }
+
     /** removes every invalid track; the number removed (-1 — error). */
     suspend fun removeInvalid(): Long {
         val res = rt.call { idxRemoveInvalidTracks() }
@@ -358,6 +398,9 @@ class LibraryRepository internal constructor(
         const val BATCH = 200
 
         /** what the core recognizes as music (`Track::is_music`); others aren't sent. */
+        /** the core's db (`storage::schema::DB_FILE_NAME`). */
+        const val DB_FILE = "music_db.sqlite"
+
         val SONG_EXTENSIONS = setOf("mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "mid", "midi")
     }
 }

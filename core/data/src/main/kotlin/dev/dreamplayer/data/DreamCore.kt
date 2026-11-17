@@ -23,7 +23,7 @@ class DreamCore private constructor(context: Context) {
     val paths = StoragePaths(context)
     val status = StatusBus(log)
     val covers = CoverStore(context, paths)
-    val library = LibraryRepository(rt, status, paths.music, covers)
+    val library = LibraryRepository(rt, status, paths.music, covers, listOf(paths.data, paths.config))
     val player: PlayerController
     val exchange: ExchangeRepository
 

@@ -1,11 +1,13 @@
 package dev.dreamplayer.feature.editor
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.dreamplayer.common.SortKey
+import dev.dreamplayer.common.TrackDates
 import dev.dreamplayer.common.TrackMatcher
 import dev.dreamplayer.model.Track
 import dev.dreamplayer.ui.nav.Editing
@@ -35,13 +37,24 @@ class PlaylistEditorState(
     var pane by mutableStateOf(Pane.Playlist)
     var sortKey by mutableStateOf(SortKey.Title)
     var descending by mutableStateOf(false)
-    /** hide songs already added (on by default, as in the TUI). */
+    /** songs already in the playlist are not listed in the pool (on by default, as in the TUI). */
     var hideAdded by mutableStateOf(true)
+    /** songs that are in no playlist of the library: listed with the rest, hidden or the only ones listed. */
+    var loose by mutableStateOf(LooseSongs.Show)
+    /** the dates a [SortKey.needsDates] sorting uses (read when such a sorting is chosen). */
+    var dates by mutableStateOf<Map<Long, TrackDates>>(emptyMap())
+    /** the search field is shown (over the pane switch). */
     var searching by mutableStateOf(false)
-    var playlistQuery by mutableStateOf("")
-    var poolQuery by mutableStateOf("")
-    /** the top sheet with the name and the cover; open when the editor opens. */
-    var sheetOpen by mutableStateOf(true)
+    /** one search for both panes; kept when the field is closed. */
+    var query by mutableStateOf("")
+    /** how open the top sheet with the name and the cover is (0..1); open when the editor opens. */
+    var sheetFraction by mutableFloatStateOf(1f)
+    /** bumped to open the sheet (a failed save points at the name). */
+    var sheetRequests by mutableIntStateOf(0)
+
+    fun openSheet() {
+        sheetRequests++
+    }
 
     enum class Pane { Playlist, Pool }
 
@@ -75,16 +88,28 @@ class PlaylistEditorState(
      * snapshot: the list may change before the rows are laid out.
      */
     fun playlistView(): List<IndexedValue<Entry>> {
-        val m = TrackMatcher(playlistQuery)
+        val m = TrackMatcher(query)
         return assembled.withIndex().filter { m.matches(it.value.track) }
     }
 
     /** the pool to pick from: search + "hide added" + sorting. */
-    fun poolView(pool: List<Track>): List<Track> {
-        val m = TrackMatcher(poolQuery)
-        val sorted = pool.filter { m.matches(it) && !(hideAdded && isAdded(it)) }.sortedBy { sortKey.of(it) }
-        return if (descending) sorted.reversed() else sorted
+    /** [inPlaylists] — ids of the songs in some saved playlist. */
+    fun poolView(pool: List<Track>, inPlaylists: Set<Long>): List<Track> {
+        val m = TrackMatcher(query)
+        val added = ids.toHashSet()
+        return pool.filter { t ->
+            val isLoose = t.id !in inPlaylists
+            val shown = when (loose) {
+                LooseSongs.Show -> true
+                LooseSongs.Hide -> !isLoose
+                LooseSongs.Only -> isLoose
+            }
+            shown && m.matches(t) && !(hideAdded && t.id in added)
+        }.sortedWith(sortKey.comparator(descending, dates))
     }
 
     private fun entry(t: Track) = Entry(nextKey++, t)
 }
+
+/** what the pool does with the songs that are in no playlist. */
+enum class LooseSongs(val label: String) { Show("Все"), Hide("Скрыть"), Only("Только они") }

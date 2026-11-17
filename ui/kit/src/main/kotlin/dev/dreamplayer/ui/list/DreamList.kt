@@ -2,6 +2,10 @@ package dev.dreamplayer.ui.list
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -42,8 +46,14 @@ fun <T> DreamList(
     Column(modifier.fillMaxSize()) {
         header?.invoke()
         if (items.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-                Text(emptyText, color = Dream.colors.muted, style = MaterialTheme.typography.bodyMedium)
+            // scrollable though empty: pulls past the top (sheets, the tab gesture) still get through.
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier.fillMaxWidth().heightIn(min = maxHeight).verticalScroll(rememberScrollState()).padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(emptyText, color = Dream.colors.muted, style = MaterialTheme.typography.bodyMedium)
+                }
             }
             return@Column
         }
