@@ -32,6 +32,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dreamplayer.common.filterTracks
 import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.model.Library
+import dev.dreamplayer.model.Queue
+import kotlinx.coroutines.Dispatchers
 import dev.dreamplayer.model.Track
 import dev.dreamplayer.ui.ConfirmDialog
 import dev.dreamplayer.ui.PositionDialog
@@ -54,7 +56,9 @@ import dev.dreamplayer.ui.theme.Dream
  */
 @Composable
 fun PlayingTab(core: DreamCore, nav: Navigator) {
-    val playback by core.player.playback.collectAsStateWithLifecycle()
+    // immediate: a dragged row's move must reach the list in the same frame
+    // as the list keeps its scroll position (or the list jumps a row and back).
+    val playback by core.player.playback.collectAsStateWithLifecycle(context = Dispatchers.Main.immediate)
     val queue = playback.queue
     val tracks = queue?.tracks.orEmpty()
 
@@ -67,7 +71,8 @@ fun PlayingTab(core: DreamCore, nav: Navigator) {
 
     // the filtered view keeps the real indices (for playback / moves).
     val view = if (searching) filterTracks(tracks, query) else tracks.indices.toList()
-    val keys = rowKeys(tracks)
+    // the entries' own keys: a copy of a song keeps its key through moves.
+    val keys = queue?.entryKeys?.takeIf { it.size == tracks.size } ?: Queue.newEntryKeys(tracks.size)
     val list = rememberLazyListState()
     val reorder = rememberReorderState(list) { from, to -> core.player.move(from, to) }
 
@@ -76,6 +81,7 @@ fun PlayingTab(core: DreamCore, nav: Navigator) {
             items = view,
             key = { _, i -> keys[i] },
             state = list,
+            reorder = reorder,
             header = {
                 Column {
                     ListHeader(
@@ -154,19 +160,6 @@ fun PlayingTab(core: DreamCore, nav: Navigator) {
             onConfirm = { core.player.remove(i, fromDb = true) },
             onDismiss = { removing = null },
         )
-    }
-}
-
-/**
- * keys of the rows that stay with a track when it is moved: the track and
- * which of its copies it is (a queue may hold one song twice).
- */
-private fun rowKeys(tracks: List<Track>): List<String> {
-    val seen = HashMap<Any, Int>()
-    return tracks.map { t ->
-        val id: Any = t.id ?: t.path ?: t.title
-        val n = seen.merge(id, 1, Int::plus)!!
-        "$id#$n"
     }
 }
 

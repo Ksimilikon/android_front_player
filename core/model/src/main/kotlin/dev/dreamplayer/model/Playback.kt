@@ -19,8 +19,21 @@ data class Queue(
      * library doesn't refresh it and "remove from the playlist" doesn't apply.
      */
     val temporary: Boolean = false,
+    /**
+     * a key of its own for every entry of [tracks] (same order): it stays with
+     * the entry through moves, so two copies of one song are never mixed up
+     * (the rows of the queue, drag-and-drop).
+     */
+    val entryKeys: List<Long> = newEntryKeys(tracks.size),
 ) {
     val currentTrack: Track? get() = tracks.getOrNull(current)
+
+    companion object {
+        private val next = java.util.concurrent.atomic.AtomicLong()
+
+        /** [n] keys never given out before (in this process). */
+        fun newEntryKeys(n: Int): List<Long> = List(n) { next.incrementAndGet() }
+    }
 }
 
 data class PlaybackState(

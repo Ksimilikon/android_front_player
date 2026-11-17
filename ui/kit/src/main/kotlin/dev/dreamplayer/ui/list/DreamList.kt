@@ -41,9 +41,11 @@ fun <T> DreamList(
     header: (@Composable () -> Unit)? = null,
     emptyText: String = "пусто",
     bottomPadding: PaddingValues = PaddingValues(bottom = 16.dp),
+    /** a list whose rows are reordered by dragging ([rememberReorderState]). */
+    reorder: ReorderState? = null,
     row: @Composable LazyItemScope.(index: Int, item: T) -> Unit,
 ) {
-    Column(modifier.fillMaxSize()) {
+    Column(modifier.fillMaxSize().then(if (reorder != null) Modifier.reorderContainer(reorder) else Modifier)) {
         header?.invoke()
         if (items.isEmpty()) {
             // scrollable though empty: pulls past the top (sheets, the tab gesture) still get through.

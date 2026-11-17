@@ -412,6 +412,7 @@ private fun AssembledPane(core: DreamCore, state: PlaylistEditorState, nav: Navi
             items = view,
             key = { _, e -> e.value.key },
             state = list,
+            reorder = reorder,
             emptyText = if (state.assembled.isEmpty()) "пусто — добавьте песни во вкладке «Добавить песни»" else "ничего не найдено",
             bottomPadding = PaddingValues(),
         ) { _, (i, e) ->

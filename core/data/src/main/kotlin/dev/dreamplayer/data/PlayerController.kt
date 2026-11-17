@@ -83,7 +83,14 @@ class PlayerController internal constructor(
             return@launch
         }
         val at = (q.current + 1).coerceAtMost(q.tracks.size)
-        state.update { it.copy(queue = q.copy(tracks = q.tracks.take(at) + tracks + q.tracks.drop(at))) }
+        state.update {
+            it.copy(
+                queue = q.copy(
+                    tracks = q.tracks.take(at) + tracks + q.tracks.drop(at),
+                    entryKeys = q.entryKeys.take(at) + Queue.newEntryKeys(tracks.size) + q.entryKeys.drop(at),
+                ),
+            )
+        }
         status.info(if (tracks.size == 1) "следом: ${tracks[0].title}" else "следом: $name (${tracks.size} песен)")
     }
 
@@ -95,7 +102,7 @@ class PlayerController internal constructor(
             startTemporary(tracks, name)
             return@launch
         }
-        state.update { it.copy(queue = q.copy(tracks = q.tracks + tracks)) }
+        state.update { it.copy(queue = q.copy(tracks = q.tracks + tracks, entryKeys = q.entryKeys + Queue.newEntryKeys(tracks.size))) }
         status.info("после очереди: $name (${tracks.size} песен)")
     }
 
@@ -126,19 +133,23 @@ class PlayerController internal constructor(
     fun previous() = launch { stepTrack(-1) }
 
     /** moves a queue track (temporarily, not written to the db); playback goes on. */
-    fun move(from: Int, to: Int) = launch {
-        val q = state.value.queue ?: return@launch
-        if (from !in q.tracks.indices || to !in q.tracks.indices) return@launch
-        val tracks = q.tracks.moved(from, to)
-        // by index, not by the song: the queue may hold one song twice.
-        val c = q.current
-        val current = when {
-            from == c -> to
-            from < c && to >= c -> c - 1
-            from > c && to <= c -> c + 1
-            else -> c
+    fun move(from: Int, to: Int) {
+        // at once, on the caller's thread (no engine call): a dragged row and
+        // the list's scroll position must change in the same frame, otherwise
+        // the list follows the row it had on top and the dragged one slips away.
+        state.update { s ->
+            val q = s.queue ?: return@update s
+            if (from !in q.tracks.indices || to !in q.tracks.indices) return@update s
+            // by index, not by the song: the queue may hold one song twice.
+            val c = q.current
+            val current = when {
+                from == c -> to
+                from < c && to >= c -> c - 1
+                from > c && to <= c -> c + 1
+                else -> c
+            }
+            s.copy(queue = q.copy(tracks = q.tracks.moved(from, to), current = current, entryKeys = q.entryKeys.moved(from, to)))
         }
-        state.update { it.copy(queue = q.copy(tracks = tracks, current = current)) }
     }
 
     /**
@@ -159,7 +170,8 @@ class PlayerController internal constructor(
         current = current.coerceAtMost((tracks.size - 1).coerceAtLeast(0))
         // the db list without the track: the coming library refresh sees no change.
         val sourceIds = if (fromDb) q.sourceIds.toMutableList().apply { removed.id?.let(::remove) } else q.sourceIds
-        state.update { it.copy(queue = q.copy(tracks = tracks, current = current, sourceIds = sourceIds)) }
+        val keys = q.entryKeys.toMutableList().apply { if (index in indices) removeAt(index) }
+        state.update { it.copy(queue = q.copy(tracks = tracks, current = current, sourceIds = sourceIds, entryKeys = keys)) }
         if (fromDb) removed.id?.let { library.removeFromPlaylist(q.name, it) }
     }
 
@@ -416,14 +428,17 @@ class PlayerController internal constructor(
         val src = if (q.temporary) null else lib.find(q.name)
         val srcIds = src?.tracks?.mapNotNull(Track::id)
         val byId = lib.pool.tracks.filter { it.id != null }.associateBy { it.id }
+        val replaced = src != null && srcIds != q.sourceIds
         val tracks = when {
-            src != null && srcIds != q.sourceIds -> src.tracks
+            replaced -> src!!.tracks
             else -> q.tracks.map { t -> t.id?.let(byId::get) ?: t }
         }
+        // taken from the db again: new entries; only refreshed: the same ones.
+        val keys = if (replaced) Queue.newEntryKeys(tracks.size) else q.entryKeys
         val cur = q.currentTrack?.key
         val current = tracks.indexOfFirst { it.id != null && it.id == cur?.id }.takeIf { it >= 0 }
             ?: q.current.coerceAtMost((tracks.size - 1).coerceAtLeast(0))
-        state.update { it.copy(queue = q.copy(tracks = tracks, current = current, sourceIds = srcIds ?: q.sourceIds)) }
+        state.update { it.copy(queue = q.copy(tracks = tracks, current = current, sourceIds = srcIds ?: q.sourceIds, entryKeys = keys)) }
     }
 
     private companion object {
