@@ -101,6 +101,11 @@ fun RootScreen(core: DreamCore, host: TabHost) {
     // an editor closed by the pull gesture with unsaved changes: what to do with them.
     var asking by remember { mutableStateOf<TabSpec?>(null) }
 
+    /** closes [tab]; an editor with unsaved changes asks save / don't save / cancel first. */
+    val requestClose: (TabSpec) -> Unit = { tab ->
+        if (tab.editing?.hasChanges == true) asking = tab else host.close(host.tabs.indexOf(tab))
+    }
+
     val scope = rememberCoroutineScope()
     var sheetOpen by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -152,7 +157,8 @@ fun RootScreen(core: DreamCore, host: TabHost) {
             host.titles,
             host.currentIndex,
             onSelect = host::select,
-            onClose = host::close,
+            // an editor with unsaved changes asks first (as the pull gesture).
+            onClose = { i -> host.tabs.getOrNull(i)?.let(requestClose) },
             position = { pager.currentPage + pager.currentPageOffsetFraction },
         )
 
@@ -174,8 +180,7 @@ fun RootScreen(core: DreamCore, host: TabHost) {
                     onTrigger = {
                         when {
                             start -> core.launch { core.library.scan() }
-                            tab.editing?.hasChanges == true -> asking = tab
-                            else -> host.close(host.tabs.indexOf(tab))
+                            else -> requestClose(tab)
                         }
                     },
                 ) {
