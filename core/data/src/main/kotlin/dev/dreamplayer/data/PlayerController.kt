@@ -193,33 +193,6 @@ class PlayerController internal constructor(
         if (persist) track.id?.let { library.setTrackVolume(it, vol) }
     }
 
-    // ───────────────────────── output device ─────────────────────────
-
-    suspend fun outputDevices(): List<String> = rt.call { engineGetOutputDevices().or(emptyList()) }
-    suspend fun outputDevice(): String? = rt.call { engineGetOutputDevice().value }
-
-    /**
-     * switches the output device with auto-resume: the engine drops the track
-     * on a device change, so the position / pause are restored (as in the TUI).
-     */
-    fun switchDevice(name: String) = launch {
-        val pos = position()
-        val paused = isPaused()
-        val code = native.engineSetOutputDevice(name)
-        if (code != EngineStatus.OK) {
-            status.error("не удалось переключиться на: $name (${describeEngine(code)})")
-            return@launch
-        }
-        needsReconnect = false
-        if (state.value.queue != null) {
-            playCurrent()
-            if (pos > 0) native.engineSetSeek(pos)
-            if (paused) native.enginePause()
-            syncTransport()
-        }
-        status.info("устройство вывода: ${if (name == DEFAULT_OUTPUT) "системное" else name}")
-    }
-
     // ───────────────────── output route changes ─────────────────────
     //
     // Android disconnects the core's AAudio stream when the output route
@@ -227,7 +200,7 @@ class PlayerController internal constructor(
     // notice — rodio only logs the stream error — so every following track
     // goes into a dead mixer and nothing plays. The stream is reopened on the
     // system default device ([DEFAULT_OUTPUT], which follows the routing) and
-    // the current track restored, as on a manual device switch.
+    // the current track restored.
 
     /** the engine's stream may be dead: reopen it before the next play. */
     private var needsReconnect = false

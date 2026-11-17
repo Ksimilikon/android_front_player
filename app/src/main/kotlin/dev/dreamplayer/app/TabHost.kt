@@ -40,6 +40,7 @@ sealed class TabSpec(val id: String, val title: String, val closable: Boolean) {
     data object Logs : TabSpec("logs", "Логи", closable = true)
     class Sync(val state: SyncTabState) : TabSpec("sync", "Устройства", closable = true)
     data object Orphans : TabSpec("orphans", "Вне плейлистов", closable = true)
+    data object Settings : TabSpec("settings", "Настройки", closable = true)
 }
 
 /**
@@ -231,6 +232,8 @@ class TabHost(private val core: DreamCore) : Navigator {
     override fun openLogs() = open(TabSpec.Logs)
 
     override fun openOrphans() = open(TabSpec.Orphans)
+
+    override fun openSettings() = open(TabSpec.Settings)
 
     override fun openSync() {
         // an open tab keeps its form.

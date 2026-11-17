@@ -32,6 +32,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +73,14 @@ fun PlaylistEditorTab(core: DreamCore, nav: Navigator, state: PlaylistEditorStat
                 val path = core.covers.importCover(uri)
                 if (path != null) state.cover = path else core.status.error("не удалось скопировать обложку")
             }
+        }
+    }
+
+    // the close gesture asked to save.
+    LaunchedEffect(state.saveRequests) {
+        if (state.saveRequests > 0) {
+            state.saveRequests = 0
+            save(core, nav, state, core.library.library.value.playlists.map { it.name })
         }
     }
 

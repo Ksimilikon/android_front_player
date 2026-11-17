@@ -20,18 +20,22 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +55,7 @@ import dev.dreamplayer.ui.nav.Navigator
 import dev.dreamplayer.ui.player.VerticalSlider
 import dev.dreamplayer.ui.theme.Dream
 import dev.dreamplayer.ui.theme.display
+import kotlinx.coroutines.launch
 
 /**
  * one song: the cover up close with the per-track volume slider on its left
@@ -113,6 +118,36 @@ fun SongTab(core: DreamCore, nav: Navigator, track: Track) {
             Spacer(Modifier.size(8.dp))
             Text("Изменить метаданные")
         }
+        RereadTags(core, t)
+    }
+}
+
+/** re-reads the tags of this song's file (edited outside the app); the very bottom of the tab. */
+@Composable
+private fun RereadTags(core: DreamCore, t: Track) {
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    TextButton(
+        onClick = {
+            busy = true
+            scope.launch {
+                try {
+                    core.library.rereadTags(t)
+                } finally {
+                    busy = false
+                }
+            }
+        },
+        enabled = !busy && t.id != null && t.path != null,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+    ) {
+        if (busy) {
+            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+        } else {
+            Icon(Icons.Filled.Refresh, contentDescription = null)
+        }
+        Spacer(Modifier.size(8.dp))
+        Text("Перечитать теги из файла")
     }
 }
 

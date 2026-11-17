@@ -31,6 +31,8 @@
         android:required="false" />
     <!-- the playback notification. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- the light click of the pull gesture (a normal permission, granted on install). -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".DreamApp"

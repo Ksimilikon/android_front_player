@@ -1,18 +1,20 @@
 package dev.dreamplayer.feature.meta
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.dreamplayer.common.splitList
 import dev.dreamplayer.model.MetaEdit
 import dev.dreamplayer.model.Track
 import dev.dreamplayer.model.TrackColor
+import dev.dreamplayer.ui.nav.Editing
 
 /**
  * the fields of the metadata editor, prefilled from [track]. Only tags and
  * user state are editable; technical fields are shown read-only.
  */
-class MetaEditorState(val track: Track) {
+class MetaEditorState(val track: Track) : Editing {
     var title by mutableStateOf(track.title)
     var artists by mutableStateOf(track.artistsLine)
     var album by mutableStateOf(track.album.orEmpty())
@@ -62,6 +64,12 @@ class MetaEditorState(val track: Track) {
     )
 
     private fun changed(i: Int, text: String): String? = text.takeIf { it != initial[i] }
+
+    override val hasChanges: Boolean
+        get() = listOf(title, artists, album, genres) != initial || newCover != null || removeCover || embedCover ||
+            color != track.color || label.trim() != track.label.orEmpty()
+
+    override var saveRequests by mutableIntStateOf(0)
 
     companion object {
         val COLORS: List<TrackColor?> = listOf(null) + TrackColor.entries

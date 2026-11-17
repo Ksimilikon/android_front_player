@@ -1,19 +1,25 @@
 package dev.dreamplayer.feature.editor
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.dreamplayer.common.SortKey
 import dev.dreamplayer.common.TrackMatcher
 import dev.dreamplayer.model.Track
+import dev.dreamplayer.ui.nav.Editing
 
 /**
  * editor state; owned by the tab host so it survives the tab leaving the
  * screen. [originalName] — null for a new playlist; [originalCover] — its
  * cover in the library.
  */
-class PlaylistEditorState(val originalName: String?, tracks: List<Track>, originalCover: String? = null) {
+class PlaylistEditorState(
+    val originalName: String?,
+    tracks: List<Track>,
+    private val originalCover: String? = null,
+) : Editing {
     /**
      * a track of the assembled list with a key of its own: the list may hold
      * one song twice (from the db / another device), the rows need unique keys.
@@ -40,6 +46,13 @@ class PlaylistEditorState(val originalName: String?, tracks: List<Track>, origin
     enum class Pane { Playlist, Pool }
 
     val ids: List<Long> get() = assembled.mapNotNull { it.track.id }
+
+    private val originalIds = tracks.mapNotNull { it.id }
+
+    override val hasChanges: Boolean
+        get() = name.trim() != originalName.orEmpty() || cover != originalCover || ids != originalIds
+
+    override var saveRequests by mutableIntStateOf(0)
 
     fun isAdded(t: Track): Boolean = t.id != null && assembled.any { it.track.id == t.id }
 

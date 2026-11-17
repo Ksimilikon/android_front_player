@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +82,49 @@ fun MetaEditorTab(core: DreamCore, nav: Navigator, state: MetaEditorState) {
             core.status.info(if (tags != null) "теги не записаны: запись файла не разрешена" else "обложка не встроена: запись файла не разрешена")
         }
         nav.closeCurrent()
+    }
+
+    val save: () -> Unit = save@{
+        if (t.id == null) {
+            core.status.warn("трек не из библиотеки")
+            return@save
+        }
+        val picture = state.cover?.takeIf { state.embedCover }
+        val edit = state.toEdit()
+        core.launch {
+            // the tags and the embedded picture go into the same file: one consent covers both.
+            val wait: Pair<MetaEdit?, String?>
+            val consent = when (core.library.applyMeta(edit, canAsk = true)) {
+                MetaResult.FAILED -> return@launch
+                MetaResult.WRITE_DENIED -> {
+                    wait = edit to picture
+                    core.files.writeRequest(t) ?: run {
+                        // nothing to ask: the retry reports the failure.
+                        core.library.applyMeta(edit.tagsOnly())
+                        return@launch
+                    }
+                }
+                MetaResult.OK -> {
+                    wait = null to picture
+                    picture?.let { core.files.embedCover(t, it) }
+                }
+            }
+            withContext(Dispatchers.Main) {
+                if (consent != null) {
+                    pending = wait
+                    writeConsent.launch(IntentSenderRequest.Builder(consent).build())
+                } else {
+                    nav.closeCurrent()
+                }
+            }
+        }
+    }
+    // the close gesture asked to save.
+    LaunchedEffect(state.saveRequests) {
+        if (state.saveRequests > 0) {
+            state.saveRequests = 0
+            save()
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -136,41 +180,7 @@ fun MetaEditorTab(core: DreamCore, nav: Navigator, state: MetaEditorState) {
         ) {
             OutlinedButton(onClick = nav::closeCurrent, modifier = Modifier.weight(1f)) { Text("Отмена") }
             Button(
-                onClick = {
-                    if (t.id == null) {
-                        core.status.warn("трек не из библиотеки")
-                        return@Button
-                    }
-                    val picture = state.cover?.takeIf { state.embedCover }
-                    val edit = state.toEdit()
-                    core.launch {
-                        // the tags and the embedded picture go into the same file: one consent covers both.
-                        val wait: Pair<MetaEdit?, String?>
-                        val consent = when (core.library.applyMeta(edit, canAsk = true)) {
-                            MetaResult.FAILED -> return@launch
-                            MetaResult.WRITE_DENIED -> {
-                                wait = edit to picture
-                                core.files.writeRequest(t) ?: run {
-                                    // nothing to ask: the retry reports the failure.
-                                    core.library.applyMeta(edit.tagsOnly())
-                                    return@launch
-                                }
-                            }
-                            MetaResult.OK -> {
-                                wait = null to picture
-                                picture?.let { core.files.embedCover(t, it) }
-                            }
-                        }
-                        withContext(Dispatchers.Main) {
-                            if (consent != null) {
-                                pending = wait
-                                writeConsent.launch(IntentSenderRequest.Builder(consent).build())
-                            } else {
-                                nav.closeCurrent()
-                            }
-                        }
-                    }
-                },
+                onClick = save,
                 modifier = Modifier.weight(1f),
             ) { Text("Сохранить") }
         }

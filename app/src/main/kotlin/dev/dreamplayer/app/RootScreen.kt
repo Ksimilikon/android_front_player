@@ -3,6 +3,7 @@ package dev.dreamplayer.app
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -12,12 +13,15 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,12 +48,16 @@ import dev.dreamplayer.feature.queue.OrphansTab
 import dev.dreamplayer.feature.queue.PlayingTab
 import dev.dreamplayer.feature.queue.PlaylistTab
 import dev.dreamplayer.feature.settings.SettingsSheet
+import dev.dreamplayer.feature.settings.SettingsTab
 import dev.dreamplayer.feature.song.SongTab
 import dev.dreamplayer.model.StatusKind
 import dev.dreamplayer.model.StatusMessage
 import dev.dreamplayer.ui.AlertBanner
 import dev.dreamplayer.ui.StatusBanner
 import dev.dreamplayer.ui.nav.DreamTabRow
+import dev.dreamplayer.ui.nav.Editing
+import dev.dreamplayer.ui.nav.PullAction
+import dev.dreamplayer.ui.nav.PullKind
 import dev.dreamplayer.ui.player.NowPlayingStrip
 import dev.dreamplayer.ui.player.PlayerBar
 import kotlinx.coroutines.flow.filter
@@ -85,6 +93,14 @@ fun RootScreen(core: DreamCore, host: TabHost) {
             }
         }
     }
+
+    val pullDp by core.settings.pullDistanceDp.collectAsStateWithLifecycle()
+    val haptics by core.settings.pullHaptics.collectAsStateWithLifecycle()
+    val hapticMs by core.settings.pullHapticMs.collectAsStateWithLifecycle()
+    val hapticStrength by core.settings.pullHapticStrength.collectAsStateWithLifecycle()
+    val scanning by core.library.scanning.collectAsStateWithLifecycle()
+    // an editor closed by the pull gesture with unsaved changes: what to do with them.
+    var asking by remember { mutableStateOf<TabSpec?>(null) }
 
     val scope = rememberCoroutineScope()
     var sheetOpen by remember { mutableStateOf(false) }
@@ -144,20 +160,38 @@ fun RootScreen(core: DreamCore, host: TabHost) {
                 key = { host.tabs.getOrNull(it)?.id ?: it },
                 modifier = Modifier.fillMaxSize(),
             ) { page ->
-                when (val tab = host.tabs.getOrNull(page)) {
-                    TabSpec.Playlists -> PlaylistsTab(core, host)
-                    TabSpec.Playing -> PlayingTab(core, host)
-                    is TabSpec.Playlist -> PlaylistTab(core, host, tab.name)
-                    is TabSpec.Song -> SongTab(core, host, tab.track)
-                    is TabSpec.NewPlaylist -> PlaylistEditorTab(core, host, tab.state)
-                    is TabSpec.EditPlaylist -> PlaylistEditorTab(core, host, tab.state)
-                    is TabSpec.EditMeta -> MetaEditorTab(core, host, tab.state)
-                    is TabSpec.Import -> ImportTab(core, host, tab.state)
-                    is TabSpec.Export -> ExportTab(core, host, tab.state)
-                    is TabSpec.Sync -> SyncTab(core, tab.state, host)
-                    TabSpec.Orphans -> OrphansTab(core, host)
-                    TabSpec.Logs -> LogsTab(core)
-                    null -> {}
+                val tab = host.tabs.getOrNull(page) ?: return@HorizontalPager
+                val start = tab == TabSpec.Playlists
+                PullAction(
+                    kind = if (start) PullKind.Refresh else PullKind.Close,
+                    busy = start && scanning,
+                    threshold = pullDp.dp,
+                    haptics = haptics,
+                    hapticMs = hapticMs,
+                    hapticStrength = hapticStrength / 100f,
+                    onTrigger = {
+                        when {
+                            start -> core.launch { core.library.scan() }
+                            tab.editing?.hasChanges == true -> asking = tab
+                            else -> host.close(host.tabs.indexOf(tab))
+                        }
+                    },
+                ) {
+                    when (tab) {
+                        TabSpec.Playlists -> PlaylistsTab(core, host)
+                        TabSpec.Playing -> PlayingTab(core, host)
+                        is TabSpec.Playlist -> PlaylistTab(core, host, tab.name)
+                        is TabSpec.Song -> SongTab(core, host, tab.track)
+                        is TabSpec.NewPlaylist -> PlaylistEditorTab(core, host, tab.state)
+                        is TabSpec.EditPlaylist -> PlaylistEditorTab(core, host, tab.state)
+                        is TabSpec.EditMeta -> MetaEditorTab(core, host, tab.state)
+                        is TabSpec.Import -> ImportTab(core, host, tab.state)
+                        is TabSpec.Export -> ExportTab(core, host, tab.state)
+                        is TabSpec.Sync -> SyncTab(core, tab.state, host)
+                        TabSpec.Orphans -> OrphansTab(core, host)
+                        TabSpec.Logs -> LogsTab(core)
+                        TabSpec.Settings -> SettingsTab(core)
+                    }
                 }
             }
             SmallFloatingActionButton(
@@ -188,6 +222,14 @@ fun RootScreen(core: DreamCore, host: TabHost) {
     }
     }
 
+    asking?.let { tab ->
+        UnsavedDialog(
+            onSave = { tab.editing?.let { it.saveRequests++ } },
+            onDiscard = { host.close(host.tabs.indexOf(tab)) },
+            onDismiss = { asking = null },
+        )
+    }
+
     if (sheetOpen) {
         ModalBottomSheet(onDismissRequest = { sheetOpen = false }, sheetState = sheetState) {
             SettingsSheet(core, host, onDone = closeSheet)
@@ -197,3 +239,29 @@ fun RootScreen(core: DreamCore, host: TabHost) {
 
 /** warnings / errors kept for the top banner; older ones are dropped. */
 private const val MAX_ALERTS = 20
+
+/** the editor state of an editing / creating tab (null — the tab edits nothing). */
+private val TabSpec.editing: Editing?
+    get() = when (this) {
+        is TabSpec.NewPlaylist -> state
+        is TabSpec.EditPlaylist -> state
+        is TabSpec.EditMeta -> state
+        else -> null
+    }
+
+/** closing an editor with unsaved changes: save / don't save / cancel. */
+@Composable
+private fun UnsavedDialog(onSave: () -> Unit, onDiscard: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Сохранить изменения?") },
+        text = { Text("Вкладка закрывается, а изменения не сохранены.") },
+        confirmButton = { TextButton(onClick = { onDismiss(); onSave() }) { Text("Сохранить") } },
+        dismissButton = {
+            Row {
+                TextButton(onClick = onDismiss) { Text("Отмена") }
+                TextButton(onClick = { onDismiss(); onDiscard() }) { Text("Не сохранять", color = MaterialTheme.colorScheme.error) }
+            }
+        },
+    )
+}

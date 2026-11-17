@@ -31,6 +31,9 @@ interface Navigator {
     /** library sync / transfer with other devices and the paired devices. */
     fun openSync()
 
+    /** the app settings: flags and heavy library maintenance. */
+    fun openSettings()
+
     /** songs that are in no playlist, to delete from the device. */
     fun openOrphans()
 

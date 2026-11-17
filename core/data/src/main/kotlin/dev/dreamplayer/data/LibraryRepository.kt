@@ -14,6 +14,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
 
 /** the library index: the track pool and the playlists of the db. */
 class LibraryRepository internal constructor(
@@ -79,6 +85,48 @@ class LibraryRepository internal constructor(
      * [announce] — report the result even when nothing changed.
      */
     suspend fun scan(dir: String? = null, announce: Boolean = true, full: Boolean = false): Boolean {
+        val (count, flag) = if (full) retagJobs to retaggingState else scanJobs to scanningState
+        synchronized(this) { flag.value = ++count[0] > 0 }
+        try {
+            return scanNow(dir, announce, full)
+        } finally {
+            synchronized(this) { flag.value = --count[0] > 0 }
+        }
+    }
+
+    private val scanJobs = intArrayOf(0)
+    private val retagJobs = intArrayOf(0)
+    private val scanningState = MutableStateFlow(false)
+    private val retaggingState = MutableStateFlow(false)
+
+    /** a quick scan (new / gone files) is running. */
+    val scanning: StateFlow<Boolean> = scanningState.asStateFlow()
+
+    /** tags of the whole library are being re-read ([rescanTags]). */
+    val retagging: StateFlow<Boolean> = retaggingState.asStateFlow()
+
+    /** re-reads the tags of every file of the music folder (slow: every file is opened). */
+    suspend fun rescanTags(): Boolean = scan(null, announce = true, full = true)
+
+    /** re-reads the tags of one song's file (tags edited outside the app). */
+    suspend fun rereadTags(track: Track): Boolean {
+        val path = track.path ?: return false.also { status.warn("у трека нет файла") }
+        if (!withContext(Dispatchers.IO) { File(path).canRead() }) {
+            status.error("файл недоступен: $path")
+            return false
+        }
+        val res = rt.call { idxAddTracks(arrayOf(path)) }
+        if (!res.isOk) {
+            status.error("не удалось перечитать теги: ${describeIdx(res.status)}")
+            return false
+        }
+        reload()
+        CoverLoader.invalidate(listOf(path))
+        status.ok("теги перечитаны: ${track.title}")
+        return true
+    }
+
+    private suspend fun scanNow(dir: String?, announce: Boolean, full: Boolean): Boolean {
         val root = dir?.let(::File) ?: musicDir
         val where = dir ?: "папка музыки"
         if (!withContext(Dispatchers.IO) { root.isDirectory && root.canRead() }) {
@@ -132,13 +180,39 @@ class LibraryRepository internal constructor(
         return failed == null
     }
 
-    /** song files under [root] (hidden directories skipped), by absolute path. */
-    private fun listSongs(root: File): Set<String> =
-        root.walkTopDown()
-            .onEnter { it == root || !it.name.startsWith('.') }
-            .filter { it.isFile && it.extension.lowercase() in SONG_EXTENSIONS }
-            .map { it.path }
-            .toSet()
+    /**
+     * song files under [root] (hidden directories skipped), by absolute path.
+     * One `readdir` per directory and one `lstat` per entry (the walk hands
+     * the attributes over); the extension is checked from the name before
+     * anything else. Symlinks aren't followed (no loops).
+     */
+    private fun listSongs(root: File): Set<String> {
+        val out = HashSet<String>()
+        Files.walkFileTree(
+            root.toPath(),
+            object : SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    val name = dir.fileName?.toString()
+                    return if (dir != root.toPath() && name != null && name.startsWith('.')) FileVisitResult.SKIP_SUBTREE
+                    else FileVisitResult.CONTINUE
+                }
+
+                override fun visitFile(file: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (attrs.isRegularFile && isSong(file.fileName.toString())) out.add(file.toString())
+                    return FileVisitResult.CONTINUE
+                }
+
+                // an unreadable folder / file: skip it, keep walking.
+                override fun visitFileFailed(file: Path, exc: IOException): FileVisitResult = FileVisitResult.CONTINUE
+            },
+        )
+        return out
+    }
+
+    private fun isSong(name: String): Boolean {
+        val dot = name.lastIndexOf('.')
+        return dot > 0 && name.substring(dot + 1).lowercase() in SONG_EXTENSIONS
+    }
 
     /**
      * creates / updates playlist [name] from [ids] (in this order) with

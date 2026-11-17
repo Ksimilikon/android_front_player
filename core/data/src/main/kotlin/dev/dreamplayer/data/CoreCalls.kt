@@ -82,10 +82,6 @@ internal class CoreCalls(private val log: CoreLog) {
         code(Sys.Engine, "engineSetVolumeMaster($volume)", merge = true) { Native.engineSetVolumeMaster(volume) }
     fun engineGetVolumeTrack() = result(Sys.Engine, "engineGetVolumeTrack()", quiet = true) { Native.engineGetVolumeTrack() }
     fun engineGetVolumeMaster() = result(Sys.Engine, "engineGetVolumeMaster()") { Native.engineGetVolumeMaster() }
-    fun engineGetOutputDevices() = result(Sys.Engine, "engineGetOutputDevices()", show = { l -> l.joinToString { q(it) } }) {
-        Native.engineGetOutputDevices()
-    }
-    fun engineGetOutputDevice() = result(Sys.Engine, "engineGetOutputDevice()") { Native.engineGetOutputDevice() }
     fun engineSetOutputDevice(name: String) =
         code(Sys.Engine, "engineSetOutputDevice(${q(name)})") { Native.engineSetOutputDevice(name) }
 
