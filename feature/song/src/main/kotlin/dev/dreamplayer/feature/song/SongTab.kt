@@ -51,6 +51,7 @@ import dev.dreamplayer.model.Track
 import dev.dreamplayer.ui.CoverImage
 import dev.dreamplayer.ui.form.InfoLine
 import dev.dreamplayer.ui.form.SectionTitle
+import dev.dreamplayer.ui.list.ListRow
 import dev.dreamplayer.ui.nav.Navigator
 import dev.dreamplayer.ui.player.VerticalSlider
 import dev.dreamplayer.ui.theme.Dream
@@ -100,6 +101,7 @@ fun SongTab(core: DreamCore, nav: Navigator, track: Track) {
             InfoLine("Цвет", t.color?.id ?: "—", Modifier.weight(1f))
             t.color?.let { Box(Modifier.padding(end = 16.dp).size(14.dp).background(it.display(), CircleShape)) }
         }
+        InPlaylists(library, t, nav)
         SectionTitle("Файл")
         InfoLine("Длительность", formatDuration(t.durationS))
         InfoLine("Битрейт", "${t.bitrate} kbps")
@@ -119,6 +121,41 @@ fun SongTab(core: DreamCore, nav: Navigator, track: Track) {
             Text("Изменить метаданные")
         }
         RereadTags(core, t)
+    }
+}
+
+/**
+ * the playlists of the library the song is in, with its position there
+ * (several if it is there more than once); a tap opens the playlist.
+ */
+@Composable
+private fun InPlaylists(library: Library, t: Track, nav: Navigator) {
+    val id = t.id ?: return
+    val found = library.playlists.mapNotNull { p ->
+        val at = p.tracks.withIndex().filter { it.value.id == id }.map { it.index + 1 }
+        if (at.isEmpty()) null else Triple(p, at, p.tracks.size)
+    }
+    SectionTitle("В плейлистах")
+    if (found.isEmpty()) {
+        Text(
+            "ни в одном плейлисте",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Dream.colors.muted,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        return
+    }
+    for ((p, at, size) in found) {
+        ListRow(
+            title = p.name,
+            subtitle = (if (at.size == 1) "позиция ${at[0]} из $size" else "позиции ${at.joinToString(", ")} из $size"),
+            leading = {
+                val first = p.tracks.firstOrNull()
+                CoverImage(p.coverArt ?: first?.coverArt, first?.path, Modifier.size(40.dp), shape = RoundedCornerShape(6.dp))
+            },
+            // to the song in it (its first place there).
+            onClick = { nav.openPlaylist(p.name, focus = at[0] - 1) },
+        )
     }
 }
 

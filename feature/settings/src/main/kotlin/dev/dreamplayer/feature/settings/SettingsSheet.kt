@@ -11,14 +11,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Devices
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -70,6 +71,7 @@ fun SettingsSheet(core: DreamCore, nav: Navigator, onDone: () -> Unit) {
         SectionTitle("Приложение")
         Action("Настройки", "жесты, вкладки, пересканирование тегов, очистка", Icons.Filled.Settings) { nav.openSettings(); onDone() }
         Action("Логи", "вызовы ядра, события и сообщения", Icons.Filled.Terminal) { nav.openLogs(); onDone() }
+        Action("О приложении", "версии, исходный код, создатели, лицензии", Icons.Filled.Info) { nav.openAbout(); onDone() }
     }
 }
 

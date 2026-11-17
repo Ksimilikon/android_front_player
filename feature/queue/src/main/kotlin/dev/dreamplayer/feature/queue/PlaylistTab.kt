@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +41,7 @@ import dev.dreamplayer.ui.list.ListHeader
 import dev.dreamplayer.ui.list.MenuAction
 import dev.dreamplayer.ui.list.TrackRow
 import dev.dreamplayer.ui.nav.Navigator
+import kotlinx.coroutines.delay
 
 /**
  * a playlist as it is in the library (its saved order). Opening doesn't start
@@ -46,7 +49,7 @@ import dev.dreamplayer.ui.nav.Navigator
  * queue. A tap on the cover picks a new one.
  */
 @Composable
-fun PlaylistTab(core: DreamCore, nav: Navigator, playlistName: String) {
+fun PlaylistTab(core: DreamCore, nav: Navigator, playlistName: String, focus: Int? = null, focusKey: Any? = null) {
     val library by core.library.library.collectAsStateWithLifecycle()
     val playback by core.player.playback.collectAsStateWithLifecycle()
     val playlist = library.find(playlistName)
@@ -68,11 +71,23 @@ fun PlaylistTab(core: DreamCore, nav: Navigator, playlistName: String) {
     }
 
     val view = if (searching) filterTracks(tracks, query) else tracks.indices.toList()
+    val list = rememberLazyListState()
+    // opened for one song (from its tab): scroll to it and light it up for a moment.
+    var flash by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(focusKey, tracks.size) {
+        val i = focus?.takeIf { it in tracks.indices } ?: return@LaunchedEffect
+        if (searching) searching = false
+        list.scrollToItem((i - FOCUS_ABOVE).coerceAtLeast(0))
+        flash = i
+        delay(FLASH_MS)
+        flash = null
+    }
 
     Column(Modifier.fillMaxSize()) {
         DreamList(
             items = view,
             key = { _, i -> "$i:${tracks[i].id ?: tracks[i].path}" },
+            state = list,
             header = {
                 Column {
                     ListHeader(
@@ -119,6 +134,7 @@ fun PlaylistTab(core: DreamCore, nav: Navigator, playlistName: String) {
                 track = t,
                 number = i + 1,
                 playing = playingHere && playback.isCurrent(t),
+                selected = flash == i,
                 menu = buildList {
                     add(playNextAction(core, t))
                     addAll(trackInfoActions(nav, t))
@@ -156,6 +172,10 @@ fun PlaylistTab(core: DreamCore, nav: Navigator, playlistName: String) {
         )
     }
 }
+
+/** rows left above the focused one (it isn't stuck at the very top). */
+private const val FOCUS_ABOVE = 2
+private const val FLASH_MS = 1500L
 
 /** "play next": the song goes into the queue right after the playing one. */
 internal fun playNextAction(core: DreamCore, t: Track): MenuAction =

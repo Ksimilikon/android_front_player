@@ -27,7 +27,7 @@ sealed class TabSpec(val id: String, val title: String, val closable: Boolean) {
      * a playlist of the library (one tab, its content is replaced); closes
      * itself once another tab is chosen, unless that is off in the settings.
      */
-    class Playlist(val name: String) : TabSpec("playlist", name, closable = true)
+    class Playlist(val name: String, val focus: Int? = null) : TabSpec("playlist", name, closable = true)
 
     /** one song: opened only from the player bar / top strip / "Подробнее". */
     class Song(val track: Track) : TabSpec("song", "Песня", closable = true)
@@ -41,6 +41,7 @@ sealed class TabSpec(val id: String, val title: String, val closable: Boolean) {
     class Sync(val state: SyncTabState) : TabSpec("sync", "Устройства", closable = true)
     data object Orphans : TabSpec("orphans", "Вне плейлистов", closable = true)
     data object Settings : TabSpec("settings", "Настройки", closable = true)
+    data object About : TabSpec("about", "О приложении", closable = true)
 }
 
 /**
@@ -165,7 +166,7 @@ class TabHost(private val core: DreamCore) : Navigator {
 
     // ───────────────────────── Navigator ─────────────────────────
 
-    override fun openPlaylist(playlistName: String) = open(TabSpec.Playlist(playlistName))
+    override fun openPlaylist(playlistName: String, focus: Int?) = open(TabSpec.Playlist(playlistName, focus))
 
     /**
      * playback was started from a playlist: go to the queue. A playlist tab
@@ -234,6 +235,8 @@ class TabHost(private val core: DreamCore) : Navigator {
     override fun openOrphans() = open(TabSpec.Orphans)
 
     override fun openSettings() = open(TabSpec.Settings)
+
+    override fun openAbout() = open(TabSpec.About)
 
     override fun openSync() {
         // an open tab keeps its form.

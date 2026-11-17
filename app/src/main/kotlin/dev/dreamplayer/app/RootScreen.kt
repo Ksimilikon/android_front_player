@@ -43,6 +43,7 @@ import dev.dreamplayer.feature.playlists.PlaylistsTab
 import dev.dreamplayer.feature.queue.OrphansTab
 import dev.dreamplayer.feature.queue.PlayingTab
 import dev.dreamplayer.feature.queue.PlaylistTab
+import dev.dreamplayer.feature.settings.AboutTab
 import dev.dreamplayer.feature.settings.SettingsSheet
 import dev.dreamplayer.feature.settings.SettingsTab
 import dev.dreamplayer.feature.song.SongTab
@@ -57,9 +58,9 @@ import dev.dreamplayer.ui.nav.PullKind
 import dev.dreamplayer.ui.player.NowPlayingStrip
 import dev.dreamplayer.ui.player.PlayerBar
 import dev.dreamplayer.ui.player.PlayerBarMode
+import kotlin.math.abs
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 /**
  * the frame (as `App::draw` in the TUI): the now-playing strip, the tab bar,
@@ -181,7 +182,7 @@ fun RootScreen(core: DreamCore, host: TabHost) {
                     when (tab) {
                         TabSpec.Playlists -> PlaylistsTab(core, host)
                         TabSpec.Playing -> PlayingTab(core, host)
-                        is TabSpec.Playlist -> PlaylistTab(core, host, tab.name)
+                        is TabSpec.Playlist -> PlaylistTab(core, host, tab.name, tab.focus, focusKey = tab)
                         is TabSpec.Song -> SongTab(core, host, tab.track)
                         is TabSpec.NewPlaylist -> PlaylistEditorTab(core, host, tab.state)
                         is TabSpec.EditPlaylist -> PlaylistEditorTab(core, host, tab.state)
@@ -192,6 +193,7 @@ fun RootScreen(core: DreamCore, host: TabHost) {
                         TabSpec.Orphans -> OrphansTab(core, host)
                         TabSpec.Logs -> LogsTab(core)
                         TabSpec.Settings -> SettingsTab(core)
+                        TabSpec.About -> AboutTab(BuildConfig.VERSION_NAME, BuildConfig.CORE_VERSION)
                     }
                 }
             }

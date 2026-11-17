@@ -7,8 +7,11 @@ import dev.dreamplayer.model.Track
  * concern navigation). Implemented by the app.
  */
 interface Navigator {
-    /** the tab of a playlist from the library (opening doesn't start playback). */
-    fun openPlaylist(playlistName: String)
+    /**
+     * the tab of a playlist from the library (opening doesn't start playback);
+     * [focus] — the position (0-based) to scroll to and briefly highlight.
+     */
+    fun openPlaylist(playlistName: String, focus: Int? = null)
 
     /** the tab of the playing queue (exists while something is chosen for playback). */
     fun openPlaying()
@@ -33,6 +36,9 @@ interface Navigator {
 
     /** the app settings: flags and heavy library maintenance. */
     fun openSettings()
+
+    /** what the app is: versions, source code, authors, licenses. */
+    fun openAbout()
 
     /** songs that are in no playlist, to delete from the device. */
     fun openOrphans()
