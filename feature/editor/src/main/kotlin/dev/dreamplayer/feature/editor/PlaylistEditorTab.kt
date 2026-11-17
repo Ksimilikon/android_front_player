@@ -155,9 +155,9 @@ fun PlaylistEditorTab(core: DreamCore, nav: Navigator, state: PlaylistEditorStat
                 }
             }
 
-            // small, by the right edge: the settings sheet button sits in the bottom-left corner.
+            // small, by the right edge.
             Row(
-                Modifier.fillMaxWidth().padding(start = 64.dp, end = 12.dp, top = 4.dp, bottom = 6.dp),
+                Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
                 verticalAlignment = Alignment.CenterVertically,
             ) {

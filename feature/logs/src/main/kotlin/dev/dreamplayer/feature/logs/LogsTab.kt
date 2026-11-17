@@ -110,7 +110,7 @@ fun LogsTab(core: DreamCore) {
                 }
             }
         },
-        bottomPadding = PaddingValues(bottom = 72.dp),
+        bottomPadding = PaddingValues(bottom = 16.dp),
     ) { _, e -> LogLine(e) }
 
     if (clearing) {

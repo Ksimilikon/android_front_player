@@ -40,7 +40,7 @@ fun <T> DreamList(
     state: LazyListState = rememberLazyListState(),
     header: (@Composable () -> Unit)? = null,
     emptyText: String = "пусто",
-    bottomPadding: PaddingValues = PaddingValues(bottom = 72.dp),
+    bottomPadding: PaddingValues = PaddingValues(bottom = 16.dp),
     row: @Composable LazyItemScope.(index: Int, item: T) -> Unit,
 ) {
     Column(modifier.fillMaxSize()) {

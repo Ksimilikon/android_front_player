@@ -62,7 +62,18 @@ class AppSettings internal constructor(context: Context) {
         vibrationStrength.value = v
     }
 
+    private val gestureBar = MutableStateFlow(prefs.getBoolean(KEY_BAR_GESTURES, false))
+
+    /** the bottom panel switches songs by sliding (tap — play / pause) instead of buttons. */
+    val barGestures: StateFlow<Boolean> = gestureBar.asStateFlow()
+
+    fun setBarGestures(value: Boolean) {
+        prefs.edit().putBoolean(KEY_BAR_GESTURES, value).apply()
+        gestureBar.value = value
+    }
+
     companion object {
+        private const val KEY_BAR_GESTURES = "bar_gestures"
         private const val KEY_VIBRATION_MS = "pull_vibration_ms"
         private const val KEY_VIBRATION_STRENGTH = "pull_vibration_strength"
         const val DEFAULT_VIBRATION_MS = 40

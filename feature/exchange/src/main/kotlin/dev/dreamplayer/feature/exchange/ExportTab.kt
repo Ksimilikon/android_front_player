@@ -141,7 +141,7 @@ fun ExportTab(core: DreamCore, nav: Navigator, state: ExportState) {
                 }
             }
         }
-        item { androidx.compose.foundation.layout.Spacer(Modifier.padding(bottom = 72.dp)) }
+        item { androidx.compose.foundation.layout.Spacer(Modifier.padding(bottom = 16.dp)) }
     }
 }
 

@@ -1,5 +1,6 @@
 package dev.dreamplayer.feature.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -44,6 +46,7 @@ import kotlin.math.roundToInt
 fun SettingsTab(core: DreamCore) {
     val settings = core.settings
     val autoClose by settings.autoClosePlaylist.collectAsStateWithLifecycle()
+    val barGestures by settings.barGestures.collectAsStateWithLifecycle()
     val pullDp by settings.pullDistanceDp.collectAsStateWithLifecycle()
     val haptics by settings.pullHaptics.collectAsStateWithLifecycle()
     val hapticMs by settings.pullHapticMs.collectAsStateWithLifecycle()
@@ -53,7 +56,7 @@ fun SettingsTab(core: DreamCore) {
     val retagging by core.library.retagging.collectAsStateWithLifecycle()
     var cleaning by remember { mutableStateOf(false) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 88.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
         SectionTitle("Вкладки")
         FormSwitch(
             "Закрывать вкладку плейлиста",
@@ -61,6 +64,16 @@ fun SettingsTab(core: DreamCore) {
             settings::setAutoClosePlaylist,
             description = "когда уходишь с неё на другую вкладку",
         )
+
+        SectionTitle("Нижняя панель")
+        Hint(
+            if (barGestures) "проведите по песне влево — следующая, вправо — предыдущая; нажатие — пауза / воспроизведение"
+            else "кнопки «предыдущая», «пауза», «следующая» справа; нажатие на песню открывает её",
+        )
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !barGestures, onClick = { settings.setBarGestures(false) }, label = { Text("Кнопки") })
+            FilterChip(selected = barGestures, onClick = { settings.setBarGestures(true) }, label = { Text("Жесты") })
+        }
 
         SectionTitle("Жест «потянуть вниз»")
         Hint(

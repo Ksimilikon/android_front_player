@@ -70,7 +70,7 @@ fun SongTab(core: DreamCore, nav: Navigator, track: Track) {
     val t = track.id?.let(library::track) ?: track
     val current = playback.isCurrent(t)
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 88.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
         CoverWithVolume(core, t, current, playback.trackVolume)
 
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {

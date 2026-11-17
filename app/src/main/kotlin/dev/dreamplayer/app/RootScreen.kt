@@ -11,14 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,14 +56,15 @@ import dev.dreamplayer.ui.nav.PullAction
 import dev.dreamplayer.ui.nav.PullKind
 import dev.dreamplayer.ui.player.NowPlayingStrip
 import dev.dreamplayer.ui.player.PlayerBar
+import dev.dreamplayer.ui.player.PlayerBarMode
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
  * the frame (as `App::draw` in the TUI): the now-playing strip, the tab bar,
- * the tabs (swipe between them), the settings sheet button in the bottom-left
- * corner, the status banner and the playback panel.
+ * the tabs (swipe between them), the status banner and the playback panel
+ * (with the menu button on its left).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -95,6 +92,7 @@ fun RootScreen(core: DreamCore, host: TabHost) {
     }
 
     val pullDp by core.settings.pullDistanceDp.collectAsStateWithLifecycle()
+    val barGestures by core.settings.barGestures.collectAsStateWithLifecycle()
     val haptics by core.settings.pullHaptics.collectAsStateWithLifecycle()
     val hapticMs by core.settings.pullHapticMs.collectAsStateWithLifecycle()
     val hapticStrength by core.settings.pullHapticStrength.collectAsStateWithLifecycle()
@@ -143,7 +141,10 @@ fun RootScreen(core: DreamCore, host: TabHost) {
         NowPlayingStrip(
             track = current,
             isPaused = playback.isPaused,
+            positionS = playback.positionS,
+            durationS = playback.durationS,
             onClick = { current?.let(host::openSong) },
+            onSeek = core.player::seek,
             modifier = Modifier.statusBarsPadding(),
         )
         DreamTabRow(
@@ -194,23 +195,18 @@ fun RootScreen(core: DreamCore, host: TabHost) {
                     }
                 }
             }
-            SmallFloatingActionButton(
-                onClick = { sheetOpen = true },
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
-            ) { Icon(Icons.Filled.Tune, contentDescription = "Настройки") }
-            StatusBanner(status, Modifier.align(Alignment.BottomCenter).padding(start = 56.dp))
+            StatusBanner(status, Modifier.align(Alignment.BottomCenter))
         }
 
         PlayerBar(
             track = current,
             isPaused = playback.isPaused,
-            positionS = playback.positionS,
-            durationS = playback.durationS,
+            mode = if (barGestures) PlayerBarMode.Gestures else PlayerBarMode.Buttons,
             onPrevious = core.player::previous,
             onPlayPause = core.player::playPause,
             onNext = core.player::next,
             onOpen = { current?.let(host::openSong) },
+            onMenu = { sheetOpen = true },
         )
     }
     AlertBanner(

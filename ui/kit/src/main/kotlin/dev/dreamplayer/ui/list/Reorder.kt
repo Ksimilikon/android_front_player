@@ -3,7 +3,6 @@ package dev.dreamplayer.ui.list
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyItemScope
@@ -183,9 +182,18 @@ fun LazyItemScope.reorderItem(state: ReorderState, key: Any): Modifier =
 fun Modifier.longPressDrag(state: ReorderState, key: Any, onStay: () -> Unit = {}): Modifier = pointerInput(state, key) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
-        val held = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+        // the system long press + [EXTRA_HOLD_MS]: a row isn't lifted by a slow scroll start.
+        val cancelled = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis + EXTRA_HOLD_MS) {
+            while (true) {
+                val c = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                if (!c.pressed || c.isConsumed) break
+                if ((c.position - down.position).getDistance() > viewConfiguration.touchSlop) break
+            }
+            true
+        }
+        if (cancelled != null) return@awaitEachGesture
         state.start(key)
-        val released = drag(held.id) { change ->
+        val released = drag(down.id) { change ->
             state.drag(change.positionChange().y)
             change.consume()
         }
@@ -196,3 +204,6 @@ fun Modifier.longPressDrag(state: ReorderState, key: Any, onStay: () -> Unit = {
 }
 
 private const val LIFT_SCALE = 1.02f
+
+/** how much longer than the system long press a row must be held to be lifted. */
+private const val EXTRA_HOLD_MS = 200L

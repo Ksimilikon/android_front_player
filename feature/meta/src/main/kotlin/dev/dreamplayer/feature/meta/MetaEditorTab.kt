@@ -173,9 +173,8 @@ fun MetaEditorTab(core: DreamCore, nav: Navigator, state: MetaEditorState) {
             InfoLine("Прослушиваний", t.listenCount.toString())
         }
 
-        // start inset: the settings sheet button sits in the bottom-left corner.
         Row(
-            Modifier.fillMaxWidth().padding(start = 72.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             OutlinedButton(onClick = nav::closeCurrent, modifier = Modifier.weight(1f)) { Text("Отмена") }

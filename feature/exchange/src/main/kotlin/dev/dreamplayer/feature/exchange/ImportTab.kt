@@ -46,7 +46,7 @@ fun ImportTab(core: DreamCore, nav: Navigator, state: ImportState) {
             ?.use { c -> if (c.moveToFirst()) c.getString(0) else null } ?: uri.lastPathSegment
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 72.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
         SectionTitle("Пакет")
         OutlinedButton(onClick = { open.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
             Icon(Icons.Filled.FileOpen, contentDescription = null)

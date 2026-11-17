@@ -128,7 +128,7 @@ fun SyncTab(core: DreamCore, state: SyncTabState, nav: Navigator) {
     var renaming by remember { mutableStateOf<Peer?>(null) }
     var forgetting by remember { mutableStateOf<Peer?>(null) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 72.dp)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
         InfoLine("Это устройство", own ?: "ключи недоступны")
 
         SectionTitle("Режим")
