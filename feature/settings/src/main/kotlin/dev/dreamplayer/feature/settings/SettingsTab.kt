@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -29,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dreamplayer.data.AppSettings
 import dev.dreamplayer.data.DreamCore
@@ -119,6 +122,8 @@ fun SettingsTab(core: DreamCore) {
             ) { Text("Проверить вибрацию") }
         }
 
+        FileAccess(core)
+
         SectionTitle("Библиотека")
         ListRow(
             title = "Пересканировать теги",
@@ -185,6 +190,42 @@ private fun SettingSlider(
         )
         Text(hint, style = MaterialTheme.typography.bodySmall, color = Dream.colors.muted)
     }
+}
+
+/**
+ * "all files access": without it Android lets the player change only the
+ * files it created itself (Music/DreamPlayer); other files — each through a
+ * system dialog, and a just downloaded one sometimes not at all.
+ */
+@Composable
+private fun FileAccess(core: DreamCore) {
+    val context = LocalContext.current
+    val intent = remember { core.files.fullAccessIntent() } ?: return
+    var granted by remember { mutableStateOf(core.files.hasFullAccess) }
+    // back from the system screen: re-read.
+    LifecycleResumeEffect(Unit) {
+        granted = core.files.hasFullAccess
+        onPauseOrDispose { }
+    }
+    SectionTitle("Доступ к файлам")
+    Hint(
+        "Android разрешает плееру менять только файлы, которые он создал сам (папка Music/DreamPlayer). " +
+            "Для остальных песен — например, скачанных другим приложением — каждый раз спрашивает разрешение, " +
+            "а только что скачанные иногда не даёт изменить вовсе. С полным доступом теги и обложки " +
+            "записываются в любой файл без вопросов.",
+    )
+    ListRow(
+        title = "Полный доступ к файлам",
+        subtitle = if (granted) "включён" else "выключен — нажмите, чтобы открыть настройки Android",
+        leading = {
+            Icon(
+                if (granted) Icons.Filled.LockOpen else Icons.Filled.Lock,
+                contentDescription = null,
+                tint = if (granted) Dream.colors.playing else Dream.colors.muted,
+            )
+        },
+        onClick = { runCatching { context.startActivity(intent) } },
+    )
 }
 
 @Composable

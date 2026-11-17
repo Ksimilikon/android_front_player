@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- reading music by path (the core indexes files directly). -->
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
@@ -12,6 +13,12 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <!-- "all files access" (Android 11+), turned on by the user in the system
+         settings (Settings → the DreamPlayer tab): tags and covers are written
+         into any song file — other apps' downloads too — without a dialog. -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
     <!-- library sync with other devices: TCP over the local network / a hotspot / adb. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

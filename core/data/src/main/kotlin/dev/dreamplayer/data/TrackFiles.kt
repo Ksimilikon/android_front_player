@@ -3,16 +3,23 @@ package dev.dreamplayer.data
 import android.app.RecoverableSecurityException
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
 import android.content.IntentSender
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
+import android.os.Environment
 import android.provider.MediaStore
+import android.provider.Settings
 import dev.dreamplayer.core.IdxStatus
 import dev.dreamplayer.covers.CoverLoader
 import dev.dreamplayer.model.Track
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.coroutines.resume
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * deleting songs from the device: the file goes, and so does the track in the
@@ -32,12 +39,27 @@ class TrackFiles internal constructor(
     private val resolver get() = context.contentResolver
 
     /**
+     * the user gave the app "all files access" (Android 11+): it writes any
+     * file in the shared storage by its path, no dialogs. Without it Android
+     * lets an app change only the files it created itself.
+     */
+    val hasFullAccess: Boolean
+        get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()
+
+    /** the system screen where the user turns "all files access" on for this app (null — not on this Android). */
+    fun fullAccessIntent(): Intent? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        return Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}"))
+    }
+
+    /**
      * the system dialog asking to delete the files of [tracks] (Android 11+);
      * null — no dialog is needed and the deletion is already done.
      */
     suspend fun requestDelete(tracks: List<Track>): IntentSender? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val uris = withContext(Dispatchers.IO) { tracks.mapNotNull { it.path?.takeIf(::exists)?.let(::mediaUri) } }
+        // with "all files access" the files are deleted directly, no dialog.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !hasFullAccess) {
+            val uris = tracks.mapNotNull { it.path?.takeIf(::exists)?.let { p -> mediaUriOrScan(p) } }
             if (uris.isNotEmpty()) return MediaStore.createDeleteRequest(resolver, uris).intentSender
         }
         finishDelete(tracks, granted = true)
@@ -106,9 +128,28 @@ class TrackFiles internal constructor(
      * app's file, Android 11+); null — there is nothing to ask.
      */
     suspend fun writeRequest(track: Track): IntentSender? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
-        val uri = withContext(Dispatchers.IO) { track.path?.let(::mediaUri) } ?: return null
+        // with "all files access" there is nothing to ask: the write itself failed.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || hasFullAccess) return null
+        val path = track.path ?: return null
+        val uri = mediaUriOrScan(path) ?: run {
+            status.warn("Android ещё не знает этот файл — разрешение на запись не запросить. Поможет «Полный доступ к файлам» в настройках")
+            return null
+        }
         return MediaStore.createWriteRequest(resolver, listOf(uri)).intentSender
+    }
+
+    /**
+     * the MediaStore item of a file; one MediaStore doesn't know yet (just
+     * downloaded by another app — the system indexes such files when it gets
+     * to them, sometimes days later) is indexed right now. The write / delete
+     * dialog can be asked only for a known item.
+     */
+    private suspend fun mediaUriOrScan(path: String): Uri? = withContext(Dispatchers.IO) {
+        mediaUri(path) ?: withTimeoutOrNull(SCAN_TIMEOUT_MS) {
+            suspendCancellableCoroutine { cont ->
+                MediaScannerConnection.scanFile(context, arrayOf(path), null) { _, uri -> if (cont.isActive) cont.resume(uri) }
+            }
+        } ?: mediaUri(path)
     }
 
     private fun exists(path: String) = File(path).exists()
@@ -119,19 +160,35 @@ class TrackFiles internal constructor(
         try {
             if (uri != null && resolver.delete(uri, null, null) > 0) return true
         } catch (_: RecoverableSecurityException) {
-            // Android 10: another app's file, only the user may allow it.
-            return false
+            // Android 10: another app's file, only the user may allow it
+            // (with "all files access" — the file itself, below).
+            if (!hasFullAccess) return false
         } catch (_: SecurityException) {
             // fall back to the file itself.
         }
         return File(path).delete() || !exists(path)
     }
 
-    /** the MediaStore item of a file by its path (null — MediaStore doesn't know it). */
+    /**
+     * the MediaStore item of a file by its path (null — MediaStore doesn't
+     * know it): among the audio, then among all files (a song MediaStore
+     * didn't take for audio); by the path as given and as resolved
+     * (`/sdcard/...` and `/storage/emulated/0/...` are one file).
+     */
     @Suppress("DEPRECATION")
     private fun mediaUri(path: String): Uri? {
-        val audio = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-        return resolver.query(audio, arrayOf(MediaStore.MediaColumns._ID), "${MediaStore.MediaColumns.DATA} = ?", arrayOf(path), null)
-            ?.use { c -> if (c.moveToFirst()) ContentUris.withAppendedId(audio, c.getLong(0)) else null }
+        val paths = listOf(path, runCatching { File(path).canonicalPath }.getOrDefault(path)).distinct()
+        for (collection in listOf(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, MediaStore.Files.getContentUri("external"))) {
+            for (p in paths) {
+                resolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), "${MediaStore.MediaColumns.DATA} = ?", arrayOf(p), null)
+                    ?.use { c -> if (c.moveToFirst()) return ContentUris.withAppendedId(collection, c.getLong(0)) }
+            }
+        }
+        return null
+    }
+
+    private companion object {
+        /** how long to wait for the system to index a file. */
+        const val SCAN_TIMEOUT_MS = 5000L
     }
 }
