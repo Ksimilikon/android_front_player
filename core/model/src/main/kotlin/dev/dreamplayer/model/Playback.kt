@@ -45,6 +45,8 @@ data class PlaybackState(
     /** volume of the playing track (the engine's value). */
     val trackVolume: Float = 1f,
     val masterVolume: Float = 1f,
+    /** the playing song starts over when it ends (instead of the next one). */
+    val repeatOne: Boolean = false,
 ) {
     val currentTrack: Track? get() = queue?.currentTrack
 

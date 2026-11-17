@@ -72,7 +72,21 @@ class AppSettings internal constructor(context: Context) {
         gestureBar.value = value
     }
 
+    private val ignoreButtons = MutableStateFlow(prefs.getBoolean(KEY_IGNORE_MEDIA_BUTTONS, false))
+
+    /**
+     * the buttons of headphones / Bluetooth devices (play, pause, next,
+     * previous) are ignored; the controls in the notification and the app work.
+     */
+    val ignoreMediaButtons: StateFlow<Boolean> = ignoreButtons.asStateFlow()
+
+    fun setIgnoreMediaButtons(value: Boolean) {
+        prefs.edit().putBoolean(KEY_IGNORE_MEDIA_BUTTONS, value).apply()
+        ignoreButtons.value = value
+    }
+
     companion object {
+        private const val KEY_IGNORE_MEDIA_BUTTONS = "ignore_media_buttons"
         private const val KEY_BAR_GESTURES = "bar_gestures"
         private const val KEY_VIBRATION_MS = "pull_vibration_ms"
         private const val KEY_VIBRATION_STRENGTH = "pull_vibration_strength"

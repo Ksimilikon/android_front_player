@@ -47,7 +47,8 @@ class PlayerController internal constructor(
         native.setTrackEndListener(
             TrackEndListener {
                 log.add(LogSource.Event, StatusKind.Info, "ядро: трек доиграл")
-                launch { stepTrack(+1) }
+                // looped: the same song again; otherwise the next one.
+                launch { if (state.value.repeatOne) playCurrent() else stepTrack(+1) }
             },
         )
         launch { state.update { it.copy(masterVolume = native.engineGetVolumeMaster().or(it.masterVolume)) } }
@@ -130,6 +131,11 @@ class PlayerController internal constructor(
     }
 
     fun next() = launch { stepTrack(+1) }
+
+    /** loops the playing song (on / off); the next / previous buttons still switch songs. */
+    fun toggleRepeatOne() {
+        state.update { it.copy(repeatOne = !it.repeatOne) }
+    }
     fun previous() = launch { stepTrack(-1) }
 
     /** moves a queue track (temporarily, not written to the db); playback goes on. */
@@ -222,7 +228,7 @@ class PlayerController internal constructor(
     /** stops playback and forgets the queue. */
     fun stop() = launch {
         native.engineStop()
-        state.update { PlaybackState(masterVolume = it.masterVolume) }
+        state.update { PlaybackState(masterVolume = it.masterVolume, repeatOne = it.repeatOne) }
     }
 
     fun seek(seconds: Long) = launch {
@@ -274,9 +280,15 @@ class PlayerController internal constructor(
     private var lastRecoveryAt = 0L
 
     /** an external output (headphones, Bluetooth, USB) went away: pause. */
-    fun onOutputRemoved(name: String) = launch {
+    /**
+     * an external output went away: pause (unplugged headphones). [pause] =
+     * false — during a call: the route changes for the call itself (a
+     * Bluetooth headset goes from music to the phone mode), the call has
+     * paused the music already and brings it back afterwards.
+     */
+    fun onOutputRemoved(name: String, pause: Boolean = true) = launch {
         needsReconnect = true
-        if (state.value.queue != null && !isPaused()) {
+        if (pause && state.value.queue != null && !isPaused()) {
             native.enginePause()
             syncTransport()
             status.info("$name: отключено — пауза")
@@ -295,6 +307,16 @@ class PlayerController internal constructor(
             syncTransport()
             status.error("не удалось перевести звук на $name — нажмите «воспроизвести» ещё раз")
         }
+    }
+
+    /**
+     * back after an interruption (a call): on a fresh stream on whatever
+     * output is now the default — the route has most likely changed meanwhile.
+     */
+    fun resumeAfterInterruption() = launch {
+        if (state.value.queue == null) return@launch
+        resumeOnFreshStream()
+        syncTransport()
     }
 
     /** play after a route change: on a fresh stream if the core can open one. */

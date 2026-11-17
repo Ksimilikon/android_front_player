@@ -78,6 +78,16 @@ fun SettingsTab(core: DreamCore) {
             FilterChip(selected = barGestures, onClick = { settings.setBarGestures(true) }, label = { Text("Жесты") })
         }
 
+        SectionTitle("Внешние устройства")
+        val ignoreButtons by settings.ignoreMediaButtons.collectAsStateWithLifecycle()
+        FormSwitch(
+            "Не слушаться внешних кнопок",
+            ignoreButtons,
+            settings::setIgnoreMediaButtons,
+            description = "кнопки наушников и Bluetooth-устройств (пауза, воспроизведение, перемотка, следующая) " +
+                "не управляют плеером; кнопки в уведомлении и в приложении работают",
+        )
+
         SectionTitle("Жест «потянуть вниз»")
         Hint(
             "Долистайте вкладку до самого верха и продолжайте тянуть пальцем вниз — сверху появится кружок. " +

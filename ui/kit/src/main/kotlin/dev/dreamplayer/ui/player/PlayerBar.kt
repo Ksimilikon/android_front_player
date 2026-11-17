@@ -24,6 +24,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Tune
@@ -51,9 +53,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import dev.dreamplayer.model.Track
 import dev.dreamplayer.ui.theme.Dream
-import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 /** how the bottom panel switches songs. */
 enum class PlayerBarMode { Buttons, Gestures }
@@ -76,6 +78,8 @@ fun PlayerBar(
     onNext: () -> Unit,
     onOpen: () -> Unit,
     onMenu: () -> Unit,
+    repeatOne: Boolean = false,
+    onRepeat: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val enabled = track != null
@@ -113,6 +117,7 @@ fun PlayerBar(
                             .padding(2.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        RepeatButton(repeatOne, enabled, onRepeat)
                         IconButton(onClick = onPrevious, enabled = enabled, modifier = Modifier.size(40.dp)) {
                             Icon(Icons.Filled.SkipPrevious, contentDescription = "Предыдущая")
                         }
@@ -124,16 +129,31 @@ fun PlayerBar(
                         }
                     }
                 }
-                PlayerBarMode.Gestures -> GestureArea(
-                    track,
-                    isPaused,
-                    onPrevious,
-                    onPlayPause,
-                    onNext,
-                    Modifier.weight(1f).fillMaxHeight().padding(6.dp),
-                )
+                PlayerBarMode.Gestures -> {
+                    GestureArea(
+                        track,
+                        isPaused,
+                        onPrevious,
+                        onPlayPause,
+                        onNext,
+                        Modifier.weight(1f).fillMaxHeight().padding(start = 6.dp, top = 6.dp, bottom = 6.dp),
+                    )
+                    RepeatButton(repeatOne, enabled, onRepeat, Modifier.padding(horizontal = 2.dp))
+                }
             }
         }
+    }
+}
+
+/** loops the playing song: lit in the accent while on. */
+@Composable
+private fun RepeatButton(on: Boolean, enabled: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = modifier.size(40.dp)) {
+        Icon(
+            if (on) Icons.Filled.RepeatOne else Icons.Filled.Repeat,
+            contentDescription = if (on) "Зацикливание включено" else "Зациклить песню",
+            tint = if (on) Dream.colors.playing else Dream.colors.muted,
+        )
     }
 }
 

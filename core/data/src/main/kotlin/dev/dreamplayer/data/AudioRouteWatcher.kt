@@ -45,7 +45,7 @@ internal class AudioRouteWatcher(
         override fun onAudioDevicesRemoved(removed: Array<AudioDeviceInfo>) {
             removed.firstOrNull(::isExternalOutput)?.let {
                 log.add(LogSource.System, StatusKind.Info, "отключено устройство вывода: ${describe(it)}")
-                player.onOutputRemoved(label(it))
+                player.onOutputRemoved(label(it), pause = !inCall())
             }
         }
     }
@@ -54,7 +54,7 @@ internal class AudioRouteWatcher(
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
             log.add(LogSource.System, StatusKind.Info, "система: AUDIO_BECOMING_NOISY")
-            player.onOutputRemoved("наушники")
+            player.onOutputRemoved("наушники", pause = !inCall())
         }
     }
 
@@ -66,6 +66,9 @@ internal class AudioRouteWatcher(
             context, noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_EXPORTED,
         )
     }
+
+    /** a call is ringing or going on: route changes belong to it. */
+    private fun inCall(): Boolean = audio.mode != AudioManager.MODE_NORMAL
 
     private fun isExternalOutput(d: AudioDeviceInfo): Boolean = d.isSink && d.type in EXTERNAL
 

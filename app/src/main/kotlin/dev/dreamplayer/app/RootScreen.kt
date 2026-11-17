@@ -214,6 +214,8 @@ fun RootScreen(core: DreamCore, host: TabHost) {
             onNext = core.player::next,
             onOpen = { current?.let(host::openSong) },
             onMenu = { sheetOpen = true },
+            repeatOne = playback.repeatOne,
+            onRepeat = core.player::toggleRepeatOne,
         )
     }
     AlertBanner(
