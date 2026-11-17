@@ -1,17 +1,26 @@
 package dev.dreamplayer.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -19,37 +28,31 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import dev.dreamplayer.model.StatusKind
-import dev.dreamplayer.model.StatusMessage
-import dev.dreamplayer.ui.theme.Dream
-import kotlinx.coroutines.delay
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.VectorConverter
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.offset
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Icon
-import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.round
-import kotlinx.coroutines.launch
+import dev.dreamplayer.model.StatusKind
+import dev.dreamplayer.model.StatusMessage
+import dev.dreamplayer.ui.theme.Dream
 import kotlin.math.abs
 import kotlin.math.sign
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
  * the status banner (the TUI status line): shows the latest message, colored
@@ -89,8 +92,9 @@ fun StatusBanner(message: StatusMessage?, modifier: Modifier = Modifier) {
 }
 
 /**
- * the top banner for warnings and errors. Unlike [StatusBanner] it doesn't
- * time out: it stays until swiped away (sideways or up). Shows the newest of
+ * the top banner for warnings and errors: each goes away by itself after
+ * [ALERT_MS] (not while the finger holds it) or swiped away (sideways or
+ * up). Shows the newest of
  * [alerts]; "ещё N" — older ones, revealed as the newer are dismissed. Tap —
  * [onOpen] (the log with the details).
  */
@@ -121,6 +125,14 @@ private fun SwipeableAlert(m: StatusMessage, more: Int, onDismiss: () -> Unit, o
     val offset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val scope = rememberCoroutineScope()
     var size by remember { mutableStateOf(IntSize(1, 1)) }
+    var held by remember { mutableStateOf(false) }
+    val dismiss by rememberUpdatedState(onDismiss)
+    // goes away by itself; a finger on it holds it until let go.
+    LaunchedEffect(m.stamp) {
+        delay(ALERT_MS)
+        snapshotFlow { held }.first { !it }
+        dismiss()
+    }
     // fades as it is dragged towards dismissal.
     val progress = maxOf(abs(offset.value.x) / size.width, -offset.value.y / size.height).coerceIn(0f, 1f)
     Surface(
@@ -135,7 +147,9 @@ private fun SwipeableAlert(m: StatusMessage, more: Int, onDismiss: () -> Unit, o
             .graphicsLayer { alpha = 1f - progress * 0.8f }
             .pointerInput(Unit) {
                 detectDragGestures(
+                    onDragStart = { held = true },
                     onDragEnd = {
+                        held = false
                         scope.launch {
                             val o = offset.value
                             when {
@@ -151,7 +165,10 @@ private fun SwipeableAlert(m: StatusMessage, more: Int, onDismiss: () -> Unit, o
                             }
                         }
                     },
-                    onDragCancel = { scope.launch { offset.animateTo(Offset.Zero) } },
+                    onDragCancel = {
+                        held = false
+                        scope.launch { offset.animateTo(Offset.Zero) }
+                    },
                 ) { change, drag ->
                     change.consume()
                     // sideways freely, vertically only up.
@@ -185,6 +202,9 @@ private fun SwipeableAlert(m: StatusMessage, more: Int, onDismiss: () -> Unit, o
 
 /** how far (of its size) the alert is dragged to be dismissed. */
 private const val SWIPE_FRACTION = 0.3f
+
+/** how long a warning / error stays on screen. */
+private const val ALERT_MS = 2500L
 
 /** confirmation of a destructive action (the red y/N prompt of the TUI). */
 @Composable

@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.PlaylistRemove
+import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
@@ -110,11 +111,16 @@ fun PlayingTab(core: DreamCore, nav: Navigator) {
                 gestures = if (searching) Modifier else Modifier.longPressDrag(reorder, keys[i]) { menuOpen.value = true },
                 menuOpen = if (searching) null else menuOpen,
                 menu = buildList {
+                    // already in the queue: it moves right after the playing one.
+                    val cur = queue?.current ?: -1
+                    add(MenuAction("Играть следом", Icons.Filled.QueuePlayNext, enabled = cur >= 0 && i != cur && i != cur + 1) {
+                        core.player.move(i, if (i < cur) cur else cur + 1)
+                    })
                     addAll(trackInfoActions(nav, t))
                     // temporary: the queue only, not written to the db.
                     add(MenuAction("На позицию…", Icons.Filled.SwapVert) { moving = i })
                     add(MenuAction("Убрать из очереди", Icons.Filled.PlaylistRemove) { core.player.remove(i, fromDb = false) })
-                    if (!isPool) add(MenuAction("Удалить из плейлиста", Icons.Filled.Delete, danger = true) { removing = i })
+                    if (!isPool && queue?.temporary != true) add(MenuAction("Удалить из плейлиста", Icons.Filled.Delete, danger = true) { removing = i })
                     if (isPool) {
                         add(MenuAction("Удалить с устройства", Icons.Filled.DeleteForever, danger = true, enabled = t.path != null) {
                             deleteFromDevice(listOf(t))
@@ -130,7 +136,7 @@ fun PlayingTab(core: DreamCore, nav: Navigator) {
     if (saving && queue != null) {
         val names = core.library.library.value.playlists.map { it.name }
         SaveQueueDialog(
-            from = queue.name.takeIf { !queue.isPool },
+            from = queue.name.takeIf { !queue.isPool && !queue.temporary },
             names = names,
             onSave = core.player::saveQueueAs,
             onDismiss = { saving = false },

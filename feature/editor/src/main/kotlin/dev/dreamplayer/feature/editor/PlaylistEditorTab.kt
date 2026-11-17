@@ -31,7 +31,9 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
@@ -150,8 +152,8 @@ fun PlaylistEditorTab(core: DreamCore, nav: Navigator, state: PlaylistEditorStat
                 },
             ) {
                 when (state.pane) {
-                    PlaylistEditorState.Pane.Playlist -> AssembledPane(state, nav)
-                    PlaylistEditorState.Pane.Pool -> PoolPane(state, library.pool.tracks, inPlaylists)
+                    PlaylistEditorState.Pane.Playlist -> AssembledPane(core, state, nav)
+                    PlaylistEditorState.Pane.Pool -> PoolPane(core, state, nav, library.pool.tracks, inPlaylists)
                 }
             }
 
@@ -360,6 +362,9 @@ private fun SortDialog(state: PlaylistEditorState, onDismiss: () -> Unit) {
 
 private val TOOLBAR_HEIGHT = 48.dp
 
+/** the name of the temporary queue the editor listens through. */
+private const val PREVIEW = "Прослушивание"
+
 private fun save(core: DreamCore, nav: Navigator, state: PlaylistEditorState, names: List<String>) {
     val name = state.name.trim()
     val old = state.originalName
@@ -394,7 +399,9 @@ private fun save(core: DreamCore, nav: Navigator, state: PlaylistEditorState, na
  * rows show a part of the order, so the long press only opens the menu.
  */
 @Composable
-private fun AssembledPane(state: PlaylistEditorState, nav: Navigator) {
+private fun AssembledPane(core: DreamCore, state: PlaylistEditorState, nav: Navigator) {
+    val playback by core.player.playback.collectAsStateWithLifecycle()
+    val previewing = playback.queue?.takeIf { it.temporary && it.name == PREVIEW }
     val view = state.playlistView()
     val list = rememberLazyListState()
     val canDrag = state.query.isBlank()
@@ -415,7 +422,17 @@ private fun AssembledPane(state: PlaylistEditorState, nav: Navigator) {
                 modifier = if (canDrag) reorderItem(reorder, e.key) else Modifier,
                 gestures = if (canDrag) Modifier.longPressDrag(reorder, e.key) { menuOpen.value = true } else Modifier,
                 menuOpen = if (canDrag) menuOpen else null,
+                // a tap listens to the draft from this song (the playlist isn't saved for it).
+                playing = previewing?.current == i && previewing.currentTrack?.key == e.track.key,
+                onClick = {
+                    if (previewing?.current == i && previewing.currentTrack?.key == e.track.key) {
+                        core.player.playPause()
+                    } else {
+                        core.player.preview(state.assembled.map { it.track }, i, PREVIEW)
+                    }
+                },
                 menu = listOf(
+                    MenuAction("Играть следом", Icons.Filled.QueuePlayNext) { core.player.playNext(listOf(e.track), e.track.title) },
                     MenuAction("Подробнее", Icons.Filled.Info) { nav.openSong(e.track) },
                     MenuAction("Изменить метаданные", Icons.Filled.Edit, enabled = e.track.id != null) { nav.openEditMeta(e.track) },
                     MenuAction("На позицию…", Icons.Filled.SwapVert) { moving = e.key },
@@ -440,7 +457,9 @@ private fun AssembledPane(state: PlaylistEditorState, nav: Navigator) {
 }
 
 @Composable
-private fun PoolPane(state: PlaylistEditorState, pool: List<Track>, inPlaylists: Set<Long>) {
+private fun PoolPane(core: DreamCore, state: PlaylistEditorState, nav: Navigator, pool: List<Track>, inPlaylists: Set<Long>) {
+    val playback by core.player.playback.collectAsStateWithLifecycle()
+    val previewing = playback.queue?.takeIf { it.temporary && it.name == PREVIEW }
     val view = state.poolView(pool, inPlaylists)
     Column {
         DreamList(
@@ -454,7 +473,14 @@ private fun PoolPane(state: PlaylistEditorState, pool: List<Track>, inPlaylists:
                 track = t,
                 selected = added,
                 leadingExtra = { Checkbox(checked = added, onCheckedChange = { state.toggle(t) }, modifier = Modifier.size(32.dp)) },
+                playing = previewing?.currentTrack?.key == t.key,
                 onClick = { state.toggle(t) },
+                // a hold: listen to it without adding it.
+                menu = listOf(
+                    MenuAction("Прослушать", Icons.Filled.Headphones) { core.player.preview(listOf(t), 0, PREVIEW) },
+                    MenuAction("Играть следом", Icons.Filled.QueuePlayNext) { core.player.playNext(listOf(t), t.title) },
+                    MenuAction("Подробнее", Icons.Filled.Info) { nav.openSong(t) },
+                ),
             )
         }
     }

@@ -70,6 +70,50 @@ class PlayerController internal constructor(
         playCurrent()
     }
 
+    /**
+     * puts [tracks] into the queue right after the playing song (they play
+     * next, the queue goes on after them); nothing playing — they start as
+     * a queue of their own named [name].
+     */
+    fun playNext(tracks: List<Track>, name: String) = launch {
+        if (tracks.isEmpty()) return@launch
+        val q = state.value.queue
+        if (q == null) {
+            startTemporary(tracks, name)
+            return@launch
+        }
+        val at = (q.current + 1).coerceAtMost(q.tracks.size)
+        state.update { it.copy(queue = q.copy(tracks = q.tracks.take(at) + tracks + q.tracks.drop(at))) }
+        status.info(if (tracks.size == 1) "следом: ${tracks[0].title}" else "следом: $name (${tracks.size} песен)")
+    }
+
+    /** puts [tracks] at the end of the queue (after the playing playlist); nothing playing — as [playNext]. */
+    fun playAfterQueue(tracks: List<Track>, name: String) = launch {
+        if (tracks.isEmpty()) return@launch
+        val q = state.value.queue
+        if (q == null) {
+            startTemporary(tracks, name)
+            return@launch
+        }
+        state.update { it.copy(queue = q.copy(tracks = q.tracks + tracks)) }
+        status.info("после очереди: $name (${tracks.size} песен)")
+    }
+
+    /**
+     * listening to songs without touching the queue's playlist (the playlist
+     * editor): a temporary queue of [tracks] from [start] named [name].
+     */
+    fun preview(tracks: List<Track>, start: Int, name: String) = launch {
+        if (tracks.isEmpty()) return@launch
+        state.update { it.copy(queue = Queue(name, isPool = false, tracks = tracks, current = start.coerceIn(0, tracks.lastIndex), temporary = true)) }
+        playCurrent()
+    }
+
+    private fun startTemporary(tracks: List<Track>, name: String) {
+        state.update { it.copy(queue = Queue(name, isPool = false, tracks = tracks, current = 0, temporary = true)) }
+        playCurrent()
+    }
+
     /** plays queue track [index]. */
     fun select(index: Int) = launch {
         val q = state.value.queue ?: return@launch
@@ -84,9 +128,16 @@ class PlayerController internal constructor(
     /** moves a queue track (temporarily, not written to the db); playback goes on. */
     fun move(from: Int, to: Int) = launch {
         val q = state.value.queue ?: return@launch
-        val cur = q.currentTrack?.key
+        if (from !in q.tracks.indices || to !in q.tracks.indices) return@launch
         val tracks = q.tracks.moved(from, to)
-        val current = tracks.indexOfFirst { it.key == cur }.takeIf { it >= 0 } ?: q.current
+        // by index, not by the song: the queue may hold one song twice.
+        val c = q.current
+        val current = when {
+            from == c -> to
+            from < c && to >= c -> c - 1
+            from > c && to <= c -> c + 1
+            else -> c
+        }
         state.update { it.copy(queue = q.copy(tracks = tracks, current = current)) }
     }
 
@@ -98,7 +149,7 @@ class PlayerController internal constructor(
     fun remove(index: Int, fromDb: Boolean) = launch {
         val q = state.value.queue ?: return@launch
         if (index !in q.tracks.indices) return@launch
-        if (fromDb && q.isPool) {
+        if (fromDb && (q.isPool || q.temporary)) {
             status.warn("из пула нельзя удалить через плейлист")
             return@launch
         }
@@ -121,15 +172,17 @@ class PlayerController internal constructor(
         val q = state.value.queue ?: return@launch
         val ids = q.tracks.mapNotNull(Track::id)
         // before the save, so the library refresh finds the saved order equal to the queue.
-        state.update { it.copy(queue = q.copy(name = name, isPool = false, sourceIds = ids)) }
+        state.update { it.copy(queue = q.copy(name = name, isPool = false, sourceIds = ids, temporary = false)) }
         if (!library.savePlaylist(name, ids, cover = library.library.value.find(name)?.coverArt)) {
-            state.update { s -> s.queue?.takeIf { it.name == name }?.let { s.copy(queue = it.copy(name = q.name, isPool = q.isPool, sourceIds = q.sourceIds)) } ?: s }
+            state.update { s ->
+            s.queue?.takeIf { it.name == name }?.let { s.copy(queue = it.copy(name = q.name, isPool = q.isPool, sourceIds = q.sourceIds, temporary = q.temporary)) } ?: s
+        }
         }
     }
 
     /** playlist [from] was renamed to [to]: a queue taken from it follows the name. */
     fun renamePlaylist(from: String, to: String) = launch {
-        state.update { s -> s.queue?.takeIf { it.name == from }?.let { s.copy(queue = it.copy(name = to)) } ?: s }
+        state.update { s -> s.queue?.takeIf { it.name == from && !it.temporary }?.let { s.copy(queue = it.copy(name = to)) } ?: s }
     }
 
     // ───────────────────────── transport ─────────────────────────
@@ -360,7 +413,7 @@ class PlayerController internal constructor(
      */
     private fun refreshQueue(lib: Library) {
         val q = state.value.queue ?: return
-        val src = lib.find(q.name)
+        val src = if (q.temporary) null else lib.find(q.name)
         val srcIds = src?.tracks?.mapNotNull(Track::id)
         val byId = lib.pool.tracks.filter { it.id != null }.associateBy { it.id }
         val tracks = when {

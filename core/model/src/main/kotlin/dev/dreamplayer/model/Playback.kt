@@ -14,6 +14,11 @@ data class Queue(
      * temporary order.
      */
     val sourceIds: List<Long> = tracks.mapNotNull(Track::id),
+    /**
+     * not a playlist of the library (a preview in the playlist editor): the
+     * library doesn't refresh it and "remove from the playlist" doesn't apply.
+     */
+    val temporary: Boolean = false,
 ) {
     val currentTrack: Track? get() = tracks.getOrNull(current)
 }

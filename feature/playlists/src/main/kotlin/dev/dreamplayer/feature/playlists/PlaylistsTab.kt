@@ -3,12 +3,14 @@ package dev.dreamplayer.feature.playlists
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.runtime.Composable
@@ -29,9 +31,9 @@ import dev.dreamplayer.ui.list.ListRow
 import dev.dreamplayer.ui.list.MenuAction
 import dev.dreamplayer.ui.nav.Navigator
 import dev.dreamplayer.ui.theme.Dream
-import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.launch
 
 /** the start tab: every playlist; the one playing is highlighted. */
 @Composable
@@ -72,6 +74,23 @@ fun PlaylistsTab(core: DreamCore, nav: Navigator) {
                 MenuAction("Воспроизвести", Icons.Filled.PlayArrow, enabled = p.tracks.isNotEmpty()) {
                     core.player.playPlaylist(p.name, 0)
                     nav.openPlaying()
+                },
+                // nothing playing: these just start the playlist.
+                MenuAction("Играть следом", Icons.Filled.QueuePlayNext, enabled = p.tracks.isNotEmpty()) {
+                    if (playback.queue == null) {
+                        core.player.playPlaylist(p.name, 0)
+                        nav.openPlaying()
+                    } else {
+                        core.player.playNext(p.tracks, p.name)
+                    }
+                },
+                MenuAction("Играть после очереди", Icons.AutoMirrored.Filled.PlaylistPlay, enabled = p.tracks.isNotEmpty()) {
+                    if (playback.queue == null) {
+                        core.player.playPlaylist(p.name, 0)
+                        nav.openPlaying()
+                    } else {
+                        core.player.playAfterQueue(p.tracks, p.name)
+                    }
                 },
                 MenuAction("Изменить", Icons.Filled.Edit, enabled = !p.isPool) { nav.openEditPlaylist(p.name) },
                 MenuAction("Удалить", Icons.Filled.Delete, danger = true, enabled = !p.isPool) { deleting = p },

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueuePlayNext
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
@@ -119,6 +120,7 @@ fun PlaylistTab(core: DreamCore, nav: Navigator, playlistName: String) {
                 number = i + 1,
                 playing = playingHere && playback.isCurrent(t),
                 menu = buildList {
+                    add(playNextAction(core, t))
                     addAll(trackInfoActions(nav, t))
                     if (!isPool) add(MenuAction("Удалить из плейлиста", Icons.Filled.Delete, danger = true) { removing = i })
                     // the pool is the whole library: here a song can go from the device itself.
@@ -154,6 +156,10 @@ fun PlaylistTab(core: DreamCore, nav: Navigator, playlistName: String) {
         )
     }
 }
+
+/** "play next": the song goes into the queue right after the playing one. */
+internal fun playNextAction(core: DreamCore, t: Track): MenuAction =
+    MenuAction("Играть следом", Icons.Filled.QueuePlayNext) { core.player.playNext(listOf(t), t.title) }
 
 /** the menu items every track list has: details and the metadata editor. */
 internal fun trackInfoActions(nav: Navigator, t: Track): List<MenuAction> = listOf(

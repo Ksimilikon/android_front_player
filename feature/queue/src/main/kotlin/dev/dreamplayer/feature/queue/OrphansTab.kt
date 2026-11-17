@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -31,6 +33,7 @@ import dev.dreamplayer.common.formatDuration
 import dev.dreamplayer.data.DreamCore
 import dev.dreamplayer.data.OrphanView
 import dev.dreamplayer.model.Track
+import dev.dreamplayer.ui.CoverImage
 import dev.dreamplayer.ui.list.DreamList
 import dev.dreamplayer.ui.list.ListHeader
 import dev.dreamplayer.ui.list.ListRow
@@ -96,7 +99,9 @@ fun OrphansTab(core: DreamCore, nav: Navigator) {
                 "оставлена".takeIf { t.ignoreOrphan },
             ).joinToString(" · "),
             dimmed = t.invalid,
+            leading = { CoverImage(t.coverArt, t.path, Modifier.size(40.dp), shape = RoundedCornerShape(6.dp)) },
             menu = listOf(
+                playNextAction(core, t),
                 MenuAction("Подробнее", Icons.Filled.Info) { nav.openSong(t) },
                 if (t.ignoreOrphan) {
                     MenuAction("Снова показывать в сборщике", Icons.Filled.Visibility, enabled = t.id != null) {
